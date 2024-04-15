@@ -103,6 +103,7 @@ def simulate_board(hero_hand, villain_hand, board, simulations=10000):
     # print(
     #     f"Low hand - Hero wins: {hero_wins_low/simulations*100:.2f}%, Villain wins: {villain_wins_low/simulations*100:.2f}%, Splits: {splits_low/simulations*100:.2f}%, No Low: {no_low/simulations*100:.2f}%")
     print('\n')
+    print(f'No Low: {no_low/simulations*100:.2f}%')
     print(
         f"Scoop - Hero Scoops: {hero_scoop/simulations*100:.2f}%, Villain Scoops: {villain_wins_high/simulations*100:.2f}%, No Scoop: {no_scoop/simulations*100:.2f}%")
     
