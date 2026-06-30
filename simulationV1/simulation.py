@@ -4,9 +4,18 @@ from itertools import combinations
 from evaluation import evaluate_and_compare
 
 
+def normalize_card(card):
+    # Match the deck's canonical form: uppercase rank ('10' -> 'T'), lowercase suit.
+    if card.startswith('10'):
+        rank, suit = 'T', card[2:]
+    else:
+        rank, suit = card[0], card[1:]
+    return rank.upper() + suit.lower()
+
+
 def remaining_deck(hero_hand, villain_hand, board):
     all_cards = set([r + s for r in '23456789TJQKA' for s in 'cdhs'])
-    used_cards = set(hero_hand + villain_hand + board)
+    used_cards = set(normalize_card(c) for c in hero_hand + villain_hand + board)
     return list(all_cards - used_cards)
 
 
@@ -97,8 +106,12 @@ def simulate_board(hero_hand, villain_hand, board, simulations=10000):
             else:
                 ns_splits_low += 1
 
-    hero_equity =( (hero_scoop/simulations)+((no_scoop/simulations)*(0.5*ns_hero_wins_high/no_scoop) + (0.25*ns_splits_high /
-                                                                                     no_scoop) + (0.5*ns_hero_wins_low/no_scoop)+(0.25*ns_splits_low/no_scoop))) *100
+    no_scoop_share = 0
+    if no_scoop > 0:
+        no_scoop_share = (no_scoop/simulations) * (
+            (0.5*ns_hero_wins_high/no_scoop) + (0.25*ns_splits_high/no_scoop) +
+            (0.5*ns_hero_wins_low/no_scoop) + (0.25*ns_splits_low/no_scoop))
+    hero_equity = ((hero_scoop/simulations) + no_scoop_share) * 100
     print(f'\n\nTotal Hero Equity: {hero_equity:.3f}%')
     print(
         f"High hand - Hero wins: {hero_wins_high/simulations*100:.2f}%, Villain wins: {villain_wins_high/simulations*100:.2f}%, Splits: {splits_high/simulations*100:.2f}%")
@@ -106,7 +119,7 @@ def simulate_board(hero_hand, villain_hand, board, simulations=10000):
         f"Low hand - No Low: {no_low/simulations*100:.2f}%, Hero wins: {hero_wins_low/simulations*100:.2f}%, Villain wins: {villain_wins_low/simulations*100:.2f}%, Splits: {splits_low/simulations*100:.2f}%")
     print('\n')
     print(
-        f"Scoop:\nHero Scoops: {hero_scoop/simulations*100:.2f}%, Villain Scoops: {villain_wins_high/simulations*100:.2f}%, No Scoop: {no_scoop/simulations*100:.2f}%")
+        f"Scoop:\nHero Scoops: {hero_scoop/simulations*100:.2f}%, Villain Scoops: {villain_scoop/simulations*100:.2f}%, No Scoop: {no_scoop/simulations*100:.2f}%")
     
     print("\nNo Scoop:")
     print(
