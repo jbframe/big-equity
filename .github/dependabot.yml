@@ -23,3 +23,15 @@ updates:
     directory: /containers/simulationV1
     schedule:
       interval: weekly
+
+  # npm dependencies for the simulationV2 container (package.json / lockfile).
+  - package-ecosystem: npm
+    directory: /containers/simulationV2
+    schedule:
+      interval: weekly
+
+  # Base image for the simulationV2 container (node:24-alpine in Dockerfile).
+  - package-ecosystem: docker
+    directory: /containers/simulationV2
+    schedule:
+      interval: weekly

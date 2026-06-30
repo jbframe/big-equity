@@ -1,0 +1,17 @@
+{
+  "name": "simulation-v2",
+  "version": "2.0.0",
+  "description": "Monte Carlo equity simulator for Big O (5-card Omaha Hi-Lo, 8-or-better)",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}
