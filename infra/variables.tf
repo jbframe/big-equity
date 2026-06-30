@@ -17,8 +17,14 @@ variable "ssh_pubkey_path" {
 }
 
 variable "my_ip_cidr" {
-  description = "CIDR allowed to SSH (port 22), e.g. 1.2.3.4/32. Set to your current IP."
+  description = "CIDR allowed to SSH (port 22) when ssh_open is false, e.g. 1.2.3.4/32. Set to your current IP."
   type        = string
+}
+
+variable "ssh_open" {
+  description = "Open SSH (port 22) to 0.0.0.0/0. Required so GitHub-hosted runners (rotating IPs) can deploy; the box is key-only, no password auth. Set false to lock SSH to my_ip_cidr."
+  type        = bool
+  default     = true
 }
 
 variable "open_http" {

@@ -19,11 +19,11 @@ resource "aws_security_group" "app" {
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description = "SSH (locked to my IP)"
+    description = var.ssh_open ? "SSH (open to the world; box is key-only)" : "SSH (locked to my IP)"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = var.ssh_open ? ["0.0.0.0/0"] : [var.my_ip_cidr]
   }
 
   dynamic "ingress" {
