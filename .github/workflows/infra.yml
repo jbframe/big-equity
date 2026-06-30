@@ -33,7 +33,7 @@ jobs:
       - run: terraform init
 
       - name: Terraform plan
-        run: terraform plan -var "my_ip_cidr=${{ vars.MY_IP_CIDR }}" -out=plan.tfplan
+        run: terraform plan -var "my_ip_cidr=${{ secrets.MY_IP_CIDR }}" -out=plan.tfplan
 
       - name: Terraform apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
