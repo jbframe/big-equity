@@ -49,9 +49,9 @@ docker run --rm simulationv1
 ## Adding another container
 
 1. Create `containers/<newname>/` with a `Dockerfile` and a `docker-compose.yml`
-   (copy `simulationV1`'s as a template; point the compose `image` at
-   `ghcr.io/YOURUSER/big-equity/<newname>`).
-2. Seed it on the box once — see [step 6 in the infra guide](infra/README.md#6-seed-the-box-with-compose--env).
+   (copy `simulationV1`'s as a template; point the compose `image` default at
+   `ghcr.io/YOURUSER/big-equity/<newname>` — lowercased, GHCR requires it).
+2. If it needs secrets, drop an `.env` on the box once — see [step 6 in the infra guide](infra/README.md#6-optional-give-a-container-its-env). Otherwise there's nothing to seed; the deploy pipeline syncs the compose file for you.
 3. Push to `main` — the deploy pipeline auto-discovers the new folder and ships it.
 
 That's the whole loop. For how the pipelines, host, and secrets fit together,

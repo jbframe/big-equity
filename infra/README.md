@@ -21,7 +21,7 @@ deploys it — all via OIDC, with **no long-lived AWS keys**.
   - [3. Wire up the backend](#3-wire-up-the-backend)
   - [4. Configure GitHub variables & secrets](#4-configure-github-variables--secrets)
   - [5. Provision the box](#5-provision-the-box)
-  - [6. Seed the box with compose + env](#6-seed-the-box-with-compose--env)
+  - [6. (Optional) give a container its .env](#6-optional-give-a-container-its-env)
 - [Day-to-day workflow](#day-to-day-workflow)
 - [How it works](#how-it-works)
 - [Cost & teardown](#cost--teardown)
@@ -60,7 +60,7 @@ Two **independent** pipelines:
 | Pipeline | Trigger | Does |
 |---|---|---|
 | `terraform` | changes under `infra/**` | provisions / updates the EC2 host |
-| `deploy` | changes under `containers/**` | for **each** `containers/<name>/`, builds image → GHCR → SSH pull on the box |
+| `deploy` | changes under `containers/**` | for **each** `containers/<name>/`, builds image → GHCR → syncs `docker-compose.yml` to the box → SSH `compose pull && up -d` |
 
 Keeping them separate means an app deploy can never accidentally destroy or
 recreate the instance.
@@ -120,7 +120,14 @@ to EC2 via Terraform; the **private** key becomes a GitHub secret.
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/ec2_deploy_key -N ""
+cp ~/.ssh/ec2_deploy_key.pub infra/ec2_deploy_key.pub   # committed; Terraform reads it from here
 ```
+
+Terraform reads the public key from `infra/ec2_deploy_key.pub` (committed to the
+repo) rather than from `~/.ssh`, so the **terraform CI pipeline can provision the
+box too** — a runner has no access to your home directory. A public key is not a
+secret, so committing it is safe; the private half stays only in `~/.ssh` and as
+the `EC2_SSH_KEY` GitHub secret.
 
 ### 2. Bootstrap AWS (local, once)
 
@@ -153,8 +160,13 @@ edited by hand.)
 
 ```bash
 gh variable set AWS_ROLE_ARN --body "<role_arn from bootstrap>"
-gh variable set MY_IP_CIDR   --body "$(curl -s ifconfig.me)/32"
+gh variable set MY_IP_CIDR   --body "$(curl -s -4 ifconfig.me)/32"
 ```
+
+> Use `curl -4` — the security group's SSH rule is IPv4-only, so an IPv6 address
+> here breaks the apply. `MY_IP_CIDR` only takes effect when `ssh_open = false`
+> (see [step 5](#5-provision-the-box)); it's still required as a variable because
+> the terraform pipeline always passes it.
 
 **Secrets** (used by the deploy pipeline):
 
@@ -176,8 +188,14 @@ get going immediately:
 ```bash
 cd infra
 terraform init
-terraform apply -var "my_ip_cidr=$(curl -s ifconfig.me)/32"
+terraform apply -var "my_ip_cidr=$(curl -s -4 ifconfig.me)/32"
 ```
+
+> **SSH access.** `ssh_open` defaults to `true`, opening port 22 to `0.0.0.0/0` so
+> the deploy pipeline (which runs from GitHub's rotating runner IPs) can reach the
+> box. The box is **key-only — no password auth** — so this is a deliberate,
+> modest tradeoff. To lock SSH back to just your IP, set `ssh_open = false`; then
+> deploys must run from your machine, not CI.
 
 Then record the instance IP as the deploy target:
 
@@ -185,21 +203,23 @@ Then record the instance IP as the deploy target:
 gh secret set EC2_HOST --body "$(terraform -chdir=infra output -raw public_ip)"
 ```
 
-### 6. Seed the box with compose + env
+### 6. (Optional) give a container its `.env`
 
-The deploy pipeline expects each container's `docker-compose.yml` to already
-exist on the box under `~/containers/<name>/`. Seed every container once (and an
-`.env` per container if it needs one):
+The deploy pipeline **syncs each container's `docker-compose.yml` to the box on
+every deploy** (via `scp`, then `docker compose up -d`), and creates an empty
+`.env` if one doesn't exist — so there's nothing to seed by hand for a container
+that needs no config.
+
+The one thing the pipeline can't supply is **real secrets**: `.env` is
+intentionally not in the repo. If a container needs environment values, place its
+`.env` on the box once:
 
 ```bash
 IP=$(terraform -chdir=infra output -raw public_ip)
-for d in containers/*/; do
-  name=$(basename "$d")
-  ssh -i ~/.ssh/ec2_deploy_key ec2-user@$IP "mkdir -p ~/containers/$name"
-  scp -i ~/.ssh/ec2_deploy_key "$d/docker-compose.yml" ec2-user@$IP:~/containers/$name/
-  ssh -i ~/.ssh/ec2_deploy_key ec2-user@$IP "touch ~/containers/$name/.env"
-done
+scp -i ~/.ssh/ec2_deploy_key containers/<name>/.env ec2-user@$IP:~/containers/<name>/.env
 ```
+
+The synced compose never overwrites `.env`, so it persists across deploys.
 
 Setup done. ✅
 
@@ -237,8 +257,12 @@ box pulls using the `read:packages` PAT.
 
 **The box.** Amazon Linux 2023 (latest AMI resolved at apply time via SSM),
 Docker + Compose installed on first boot by [`user_data.sh`](user_data.sh),
-fronted by an Elastic IP so `EC2_HOST` stays stable across reboots. SSH is
-locked to `MY_IP_CIDR`; port 80 is closed unless you set `open_http = true`.
+fronted by an Elastic IP so `EC2_HOST` stays stable across reboots. SSH is open
+to `0.0.0.0/0` by default (`ssh_open = true`) so CI runners can deploy — the box
+is key-only, no password auth; set `ssh_open = false` to lock it to `MY_IP_CIDR`.
+Port 80 is closed unless you set `open_http = true`. The deploy public key is read
+from the committed `infra/ec2_deploy_key.pub`, so the terraform pipeline can
+provision without access to your `~/.ssh`.
 
 ---
 
@@ -268,6 +292,7 @@ locked to `MY_IP_CIDR`; port 80 is closed unless you set `open_http = true`.
 | deploy pipeline: `Permission denied (publickey)` | `EC2_SSH_KEY` isn't the **private** half of the key Terraform uploaded, or `EC2_HOST` is stale. |
 | box can't pull image: `denied` / `unauthorized` | `GHCR_PAT` missing `read:packages`, or the package is private and the PAT belongs to a different account. |
 | SSH from your laptop times out | your IP changed; update `MY_IP_CIDR` and re-apply, or use AWS SSM Session Manager. |
-| deploy: `cd: ~/containers/<name>: No such file` | that container wasn't seeded on the box — run [step 6](#6-seed-the-box-with-compose--env) for it. |
+| deploy: `invalid reference format` / image not lowercase | the container's `docker-compose.yml` still has the `YOURUSER` placeholder in its `image:` default — replace it with your lowercased `owner/repo`. |
+| running `docker compose up` on the box fails to pull | `IMAGE` isn't set in a manual run — it's only injected by the pipeline; either run `IMAGE=ghcr.io/<owner>/<repo>/<name>:latest docker compose up`, or rely on the compose `image:` default. |
 | matrix builds nothing / `containers` is empty | the `containers/<name>/` dir is missing a `Dockerfile`, so discovery skips it. |
 | state is locked / stale `.tflock` | a run was killed mid-apply; clear with `terraform force-unlock <LOCK_ID>` (ID is in the error). |
