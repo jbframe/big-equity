@@ -13,6 +13,7 @@ variable "instance_type" {
 variable "my_ip_cidr" {
   description = "CIDR allowed to SSH (port 22) when ssh_open is false, e.g. 1.2.3.4/32. Set to your current IP."
   type        = string
+  sensitive   = true # home IP — keep it out of plan output / CI logs
 }
 
 variable "ssh_open" {
