@@ -90,28 +90,74 @@ resource "aws_iam_role" "ci" {
       Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
+        # Scope the role to exactly one caller: a run of the terraform pipeline
+        # that is gated by the "production" GitHub environment. Because that job
+        # declares `environment: production` (.github/workflows/infra.yml), its
+        # OIDC token `sub` is the environment form below — NOT a `ref:` form.
+        # A push/PR on any other branch produces a different `sub`, so AWS STS
+        # refuses the assume outright (enforced by AWS, independent of GitHub
+        # branch protection).
+        #
+        # COUPLING: this must stay in sync with infra.yml. If you remove
+        # `environment: production` from that workflow, the `sub` reverts to
+        # `repo:${var.github_repo}:ref:refs/heads/main` and apply breaks until
+        # this value is updated to match.
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        # Restrict to this repo. Tighten further to a branch/environment with
-        # e.g. "repo:${var.github_repo}:ref:refs/heads/main".
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:production"
         }
       }
     }]
   })
 }
 
-# Broad permissions for personal use. Scope down once things settle.
-resource "aws_iam_role_policy_attachment" "ci_poweruser" {
-  role       = aws_iam_role.ci.name
-  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
-}
+# Least-privilege policy for the CI role: exactly what the main config
+# (../main.tf) manages and nothing more. This is the permission half of the
+# defense-in-depth pair — the trust policy above limits WHO can assume the
+# role; this limits WHAT the role can do once assumed.
+#
+# Local runs are unaffected: `terraform apply` from your machine uses your own
+# AWS identity (the default credential chain), not this role — so scoping it
+# down does not touch local bootstrap.
+#
+# Note: most EC2 RunInstances/Describe* actions don't support resource-level
+# scoping, so "ec2:*" on "*" is the practical floor — still far narrower than
+# PowerUserAccess (no S3 beyond state, no IAM, RDS, Lambda, Secrets Manager).
+# If you later manage IAM in CI, add a scoped iam:* statement here.
+resource "aws_iam_role_policy" "ci" {
+  name = "github-actions-terraform"
+  role = aws_iam_role.ci.id
 
-# PowerUserAccess excludes IAM. The main config manages a key pair + reads SSM
-# but does not create IAM, so this is enough. If you later manage IAM in CI,
-# attach IAMFullAccess (or a scoped policy) here.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "EC2"
+        Effect   = "Allow"
+        Action   = "ec2:*"
+        Resource = "*"
+      },
+      {
+        Sid      = "SSMReadPublicAMI"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = "arn:aws:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+      },
+      {
+        Sid      = "TFStateBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket", "s3:GetBucketVersioning"]
+        Resource = aws_s3_bucket.state.arn
+      },
+      {
+        Sid      = "TFStateObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.state.arn}/*"
+      }
+    ]
+  })
+}
 
 output "state_bucket" {
   value = aws_s3_bucket.state.id
