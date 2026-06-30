@@ -1,7 +1,7 @@
 # Alpine base: minimal package set means a far smaller CVE surface than
 # debian-slim. Pinned by digest for reproducible, tamper-evident builds;
 # Dependabot bumps both the digest and the tag comment on new 3.12-alpine builds.
-FROM python:3.12-alpine@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df
+FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
 
 WORKDIR /app
 
