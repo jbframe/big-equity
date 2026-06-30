@@ -1,0 +1,11 @@
+# Lives on the EC2 box at ~/containers/simulationV1/docker-compose.yml.
+# The deploy pipeline sets IMAGE to the freshly-built tag and runs `up -d`.
+services:
+  app:
+    image: ${IMAGE:-ghcr.io/YOURUSER/big-equity/simulationv1:latest}
+    # simulationV1 is a batch job: it runs to completion and exits. "no" stops
+    # Compose from restart-looping it. For a long-running service (web server,
+    # worker), change this to "unless-stopped".
+    restart: "no"
+    env_file:
+      - .env

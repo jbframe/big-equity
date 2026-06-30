@@ -1,0 +1,7 @@
+# Bootstrap uses LOCAL state — keep it out of git.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example

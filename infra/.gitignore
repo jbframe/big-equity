@@ -1,0 +1,12 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Local var overrides (may contain sensitive values)
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl.bak

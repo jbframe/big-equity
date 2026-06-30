@@ -1,1 +1,9 @@
 .vscode/
+
+# Python
+__pycache__/
+*.pyc
+
+# Secrets / local env
+.env
+*.pem
