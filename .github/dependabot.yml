@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Keep GitHub Actions pinned-by-SHA but never stale: Dependabot opens PRs
+  # that bump both the commit SHA and the trailing `# vX.Y.Z` comment, so we
+  # get supply-chain safety (pinned commits) without losing security patches.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One PR per week for routine action bumps instead of one per action.
+      actions:
+        patterns: ["*"]
+
+  # Python dependencies for the simulationV1 container (requirements.txt).
+  - package-ecosystem: pip
+    directory: /containers/simulationV1
+    schedule:
+      interval: weekly
+
+  # Base image for the simulationV1 container (python:3.12-slim in Dockerfile).
+  - package-ecosystem: docker
+    directory: /containers/simulationV1
+    schedule:
+      interval: weekly
