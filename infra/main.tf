@@ -10,7 +10,7 @@ data "aws_ssm_parameter" "al2023" {
 
 resource "aws_key_pair" "deploy" {
   key_name   = "${var.project_name}-deploy-key"
-  public_key = file(pathexpand(var.ssh_pubkey_path))
+  public_key = file("${path.module}/ec2_deploy_key.pub")
 }
 
 resource "aws_security_group" "app" {

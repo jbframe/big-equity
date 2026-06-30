@@ -10,12 +10,6 @@ variable "instance_type" {
   default     = "t3.micro"
 }
 
-variable "ssh_pubkey_path" {
-  description = "Path to the SSH public key uploaded to the instance for deploys."
-  type        = string
-  default     = "~/.ssh/ec2_deploy_key.pub"
-}
-
 variable "my_ip_cidr" {
   description = "CIDR allowed to SSH (port 22) when ssh_open is false, e.g. 1.2.3.4/32. Set to your current IP."
   type        = string
