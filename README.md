@@ -9,39 +9,22 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 
 ---
 
+## Containers
+
+| Container | Summary | Readme |
+| --- | --- | --- |
+| `simulationV1` | Poker equity simulator — given hero/villain hands and a board, it runs out the remaining cards and reports each player's equity. Stdlib-only Python. | [containers/simulationV1/README.txt](containers/simulationV1/README.txt) |
+
+---
+
 ## Repository layout
 
 ```
 .
 ├── containers/              # one self-contained, deployable container per dir
 │   └── simulationV1/        # the poker equity sim
-│       ├── main.py          # entrypoint
-│       ├── simulation.py
-│       ├── evaluation.py
-│       ├── Dockerfile       # builds this container's image
-│       ├── docker-compose.yml
-│       ├── requirements.txt # Python deps (stdlib-only today)
-│       └── .dockerignore
 ├── infra/                   # Terraform + deployment — see infra/README.md
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
-```
-
----
-
-## Running locally
-
-`simulationV1` is stdlib-only, so you can run it directly:
-
-```bash
-cd containers/simulationV1
-python main.py
-```
-
-Or via Docker, exactly as it runs in production:
-
-```bash
-docker build -t simulationv1 containers/simulationV1
-docker run --rm simulationv1
 ```
 
 ---
@@ -62,4 +45,4 @@ read **[`infra/README.md`](infra/README.md)**.
 ## Deployment
 
 See **[`infra/README.md`](infra/README.md)** for the architecture, one-time
-setup, day-to-day workflow, cost, and troubleshooting.
+setup, day-to-day workflow, and cost.
