@@ -87,5 +87,9 @@ jobs:
             [ -f .env ] || touch .env          # env_file needs it to exist
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker compose pull
+            # Refresh the box's local :latest so a bare `docker compose run`
+            # (which defaults to :latest and never pulls) reflects this deploy
+            # instead of a stale cached image.
+            docker pull "${IMAGE%:*}:latest"
             docker compose up -d
             docker image prune -f
