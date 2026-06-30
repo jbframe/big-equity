@@ -1,8 +1,6 @@
 name: terraform
 
 on:
-  pull_request:
-    paths: ["infra/**"]
   push:
     branches: [main]
     paths: ["infra/**"]
@@ -11,7 +9,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  pull-requests: write # so plan output can be commented on PRs (optional)
 
 jobs:
   terraform:

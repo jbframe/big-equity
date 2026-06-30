@@ -2,7 +2,9 @@
 
 Everything needed to provision the host and ship containers to it. Terraform
 builds an EC2 Docker host; GitHub Actions builds each container's image and
-deploys it — all via OIDC, with **no long-lived AWS keys**.
+deploys it. The AWS side authenticates via OIDC, so **no long-lived AWS keys**
+ever live in GitHub. The deploy side reaches the box with an SSH key and pulls
+images with a GHCR token — both stored as GitHub secrets.
 
 > Run all commands below **from the repository root** unless noted (the seed
 > step touches `../containers/`). Markdown links in this file are relative to
@@ -25,7 +27,6 @@ deploys it — all via OIDC, with **no long-lived AWS keys**.
 - [Day-to-day workflow](#day-to-day-workflow)
 - [How it works](#how-it-works)
 - [Cost & teardown](#cost--teardown)
-- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -83,7 +84,8 @@ infra/
 ├── variables.tf
 ├── backend.tf           # S3 remote state config
 ├── main.tf              # VPC lookup, security group, key pair, EC2, Elastic IP
-├── user_data.sh         # installs Docker + Compose on first boot
+├── ec2_deploy_key.pub   # committed deploy public key (Terraform reads it here)
+├── user_data.sh         # first boot: Docker + Compose, post-quantum SSH KEX
 └── outputs.tf
 
 .github/workflows/
@@ -264,6 +266,11 @@ Port 80 is closed unless you set `open_http = true`. The deploy public key is re
 from the committed `infra/ec2_deploy_key.pub`, so the terraform pipeline can
 provision without access to your `~/.ssh`.
 
+`user_data.sh` also enables a **post-quantum SSH key exchange**
+(`sntrup761x25519-sha512@openssh.com`), which AL2023's OpenSSH supports but
+doesn't prefer by default — guarding against store-now-decrypt-later capture of
+the deploy session.
+
 ---
 
 ## Cost & teardown
@@ -280,19 +287,3 @@ provision without access to your `~/.ssh`.
   # and, if you're fully done:
   cd bootstrap && terraform destroy
   ```
-
----
-
-## Troubleshooting
-
-| Symptom | Likely cause / fix |
-|---|---|
-| `Error: configuring S3 Backend: ... NoSuchBucket` | `backend.tf` bucket name doesn't match the bootstrap output. |
-| terraform pipeline: `Not authorized to perform sts:AssumeRoleWithWebIdentity` | `AWS_ROLE_ARN` variable wrong, or the role's trust policy `sub` doesn't match `repo:owner/repo:*`. |
-| deploy pipeline: `Permission denied (publickey)` | `EC2_SSH_KEY` isn't the **private** half of the key Terraform uploaded, or `EC2_HOST` is stale. |
-| box can't pull image: `denied` / `unauthorized` | `GHCR_PAT` missing `read:packages`, or the package is private and the PAT belongs to a different account. |
-| SSH from your laptop times out | your IP changed; update `MY_IP_CIDR` and re-apply, or use AWS SSM Session Manager. |
-| deploy: `invalid reference format` / image not lowercase | the container's `docker-compose.yml` still has the `YOURUSER` placeholder in its `image:` default — replace it with your lowercased `owner/repo`. |
-| running `docker compose up` on the box fails to pull | `IMAGE` isn't set in a manual run — it's only injected by the pipeline; either run `IMAGE=ghcr.io/<owner>/<repo>/<name>:latest docker compose up`, or rely on the compose `image:` default. |
-| matrix builds nothing / `containers` is empty | the `containers/<name>/` dir is missing a `Dockerfile`, so discovery skips it. |
-| state is locked / stale `.tflock` | a run was killed mid-apply; clear with `terraform force-unlock <LOCK_ID>` (ID is in the error). |
