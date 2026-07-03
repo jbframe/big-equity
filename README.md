@@ -14,7 +14,16 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | Container | Summary | Readme |
 | --- | --- | --- |
 | `simulationPY` | Poker equity simulator — given hero/villain hands and a board, it runs out the remaining cards and reports each player's equity. Stdlib-only Python. | [containers/simulationPY/README.md](containers/simulationPY/README.md) |
+| `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React + Framer Motion; the Monte Carlo runs client-side in a Web Worker. Served static via nginx. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
+
+### Public internet exposure
+
+| Container | Exposed | URL |
+| --- | --- | --- |
+| `simulationPY` | No | Internal only |
+| `simulationTS` | No | Internal only |
+| `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
 
 ---
 
@@ -23,7 +32,9 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 ```
 .
 ├── containers/              # one self-contained, deployable container per dir
-│   └── simulationPY/        # the poker equity sim
+│   ├── simulationPY/        # poker equity simulator (Python)
+│   ├── simulationTS/        # poker equity simulator (TypeScript)
+│   └── simulationWeb/       # browser UI for the simulator
 ├── infra/                   # Terraform + deployment — see infra/README.md
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
 ```
