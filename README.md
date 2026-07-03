@@ -29,9 +29,9 @@ Technology choices follow the defaults in
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
 | `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
-| `simulationAPI` | Yes (provisioned at boot; live after the next box rebuild) | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
+| `simulationAPI` | Yes | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
 | `simulationDB` | No | Docker network only ([ADR-003](docs/adr/003-simulationdb-container.md)); dev-only toggle per [ADR-005](docs/adr/005-simulationdb-dev-access-toggle.md) |
-| `fusionAuth` | Yes (provisioned at boot; live after the next box rebuild) | https://id.makejohnacoffee.com (per [ADR-006](docs/adr/006-fusionauth-container.md)) |
+| `fusionAuth` | Yes | https://id.makejohnacoffee.com (per [ADR-006](docs/adr/006-fusionauth-container.md)) |
 
 How the exposure works (see [ADR-001](docs/adr/001-expose-simulationweb.md); the API follows the same pattern per [ADR-002](docs/adr/002-fastify-backend-container.md), plus per-IP rate limiting at the proxy):
 
@@ -118,11 +118,37 @@ graph TD
 
 ```
 .
+├── cmd                      # launcher for the scripts in scripts/ — ./cmd lists them
 ├── containers/              # one self-contained, deployable container per dir
-├── docs/                    # ADRs (docs/adr/) and steering docs (docs/steering/)
+├── docs/                    # ADRs (docs/adr/), stories (docs/stories/), steering docs (docs/steering/)
 ├── infra/                   # Terraform + deployment — see infra/README.md
+├── scripts/                 # operator tooling, run from your machine
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
 ```
+
+---
+
+## Scripts
+
+Operator tooling under `scripts/` — run from your machine, nothing to install
+on the box. Call everything through [`cmd`](cmd), the launcher at the repo
+root (no shell config needed — but note the leading `./`; zsh/bash won't find
+a bare `cmd`):
+
+```sh
+./cmd                    # list available commands
+./cmd monitor            # live watch-style view (".sh" suffix optional); ctrl-c to exit
+./cmd monitor --snap     # one-shot health snapshot
+```
+
+Arguments after the command name pass through to the script, so
+`./cmd monitor --snap` runs `scripts/monitor.sh --snap`. Any executable
+`<name>.sh` added to `scripts/` becomes a `./cmd <name>` command
+automatically.
+
+| Script | What it does |
+| --- | --- |
+| [`scripts/monitor.sh`](scripts/monitor.sh) | Health/CPU/mem/disk/network view of the EC2 host and its containers over SSH. Default is a live watch-style table (one row per container plus a `NODE` row) with net/disk as per-second rates; `--snap` prints a one-shot snapshot instead. Resolves the host from `$EC2_HOST` or `terraform output`. |
 
 ---
 

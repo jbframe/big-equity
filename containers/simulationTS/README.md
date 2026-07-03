@@ -54,3 +54,12 @@ suit, any casing, with ten written as either `10` or `T` (e.g. `"10c"`, `"Tc"`,
 ## Relationship to simulationPY
 
 The hand-scoring logic is a faithful port of the Python original.
+
+## Deployment
+
+Ships through the standard pipeline: `deploy.yml` auto-discovers the
+`Dockerfile`, builds a multi-stage image (digest-pinned `node:24-alpine`),
+pushes to GHCR, and runs `docker compose up -d` on the box. It's a **batch
+job** — it runs to completion and exits (`restart: "no"` in
+`docker-compose.yml`), publishes no ports, and is not reachable from the
+internet.
