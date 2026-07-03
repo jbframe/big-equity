@@ -1,0 +1,120 @@
+name: db-access
+
+# Dev-only public access toggle for simulationDB (ADR-005). `enable` opens
+# 5432 to the caller's CIDR (SG rule + compose port override); `disable`
+# reverts both. Every open/close is a workflow run with an actor and a
+# timestamp — the one sanctioned, auditable path in. Developers connect at
+# db.makejohnacoffee.com:5432 while enabled.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Enable or disable public 5432
+        type: choice
+        options: [enable, disable]
+        required: true
+      cidr:
+        description: "Your public IP as a CIDR, e.g. 203.0.113.7/32 (required for enable; never 0.0.0.0/0)"
+        type: string
+        default: ""
+  schedule:
+    # Forgot-to-close failsafe: unconditional disable, nightly 07:00 UTC.
+    - cron: "0 7 * * *"
+
+permissions:
+  id-token: write # OIDC — no stored AWS keys (ADR-005)
+  contents: read
+
+# An enable racing the nightly disable could leave half-open state.
+concurrency: db-access
+
+jobs:
+  toggle:
+    runs-on: ubuntu-latest
+    env:
+      ACTION: ${{ github.event_name == 'schedule' && 'disable' || inputs.action }}
+      CIDR: ${{ inputs.cidr }}
+      SG_ID: ${{ vars.DB_SG_ID }}
+    steps:
+      - name: Validate CIDR
+        if: env.ACTION == 'enable'
+        run: |
+          if ! echo "$CIDR" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/(3[0-2]|[12]?[0-9])$'; then
+            echo "::error::cidr must look like 203.0.113.7/32"; exit 1
+          fi
+          if [ "${CIDR#0.0.0.0/}" != "$CIDR" ]; then
+            echo "::error::refusing to open 5432 to the world"; exit 1
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+        with:
+          role-to-assume: ${{ vars.DB_ACCESS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Open 5432 to the caller CIDR
+        if: env.ACTION == 'enable'
+        run: |
+          out=$(aws ec2 authorize-security-group-ingress \
+                  --group-id "$SG_ID" --protocol tcp --port 5432 \
+                  --cidr "$CIDR" 2>&1) || {
+            if echo "$out" | grep -q InvalidPermission.Duplicate; then
+              echo "SG rule for $CIDR already present"
+            else
+              echo "$out"; exit 1
+            fi
+          }
+
+      - name: Publish the container port
+        if: env.ACTION == 'enable'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/containers/simulationDB
+            cat > docker-compose.override.yml <<'EOF'
+            services:
+              db:
+                ports:
+                  - "5432:5432"
+            EOF
+            docker compose up -d
+
+      # Disable order per ADR-005: unpublish the port first, then revoke the
+      # SG rule — never a window where the SG is open wider than the port.
+      - name: Unpublish the container port
+        if: env.ACTION == 'disable'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            # Nothing to do if simulationDB has never been deployed (e.g. the
+            # nightly run on a fresh box).
+            [ -d ~/containers/simulationDB ] || exit 0
+            cd ~/containers/simulationDB
+            if [ -f docker-compose.override.yml ]; then
+              rm docker-compose.override.yml
+              docker compose up -d
+            fi
+
+      - name: Revoke all 5432 rules
+        if: env.ACTION == 'disable'
+        run: |
+          # The nightly failsafe doesn't know which CIDR was opened, so
+          # revoke every 5432 rule on the group.
+          perms=$(aws ec2 describe-security-groups --group-ids "$SG_ID" \
+            --query 'SecurityGroups[0].IpPermissions[?FromPort==`5432` && ToPort==`5432`]' \
+            --output json)
+          if [ "$perms" != "[]" ]; then
+            aws ec2 revoke-security-group-ingress --group-id "$SG_ID" --ip-permissions "$perms"
+            echo "revoked: $perms"
+          else
+            echo "no 5432 rules to revoke"
+          fi

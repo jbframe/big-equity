@@ -52,6 +52,12 @@ variable "backup_bucket_name" {
   default     = "big-equity-db-backups-jbframe"
 }
 
+variable "github_repo" {
+  description = "GitHub repo (owner/repo) whose db-access workflow may assume the ADR-005 toggle role."
+  type        = string
+  default     = "jbframe/big-equity"
+}
+
 variable "project_name" {
   description = "Name tag / app directory on the box."
   type        = string
