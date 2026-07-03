@@ -2,7 +2,7 @@
 
 Date: 2026-07-03
 
-Status: **Draft** — design settled during ADR-003 and recorded here as its own decision; implement after ADR-003's core (container, ORM, backups) lands.
+Status: **Accepted** — design settled during ADR-003 and recorded here as its own decision; implemented after ADR-003's core (container, ORM, backups) landed.
 
 ## Requirements
 - Temporary, manually triggered public access to simulationDB for development — never part of prod operation (ADR-003 keeps the DB docker-network-only normally)

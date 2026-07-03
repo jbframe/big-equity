@@ -88,13 +88,15 @@ infra/
 ├── backend.tf           # S3 remote state config
 ├── main.tf              # VPC lookup, security group, key pair, EC2, Elastic IP
 ├── db_backups.tf        # simulationDB backup bucket + instance role (ADR-003)
+├── db_access.tf         # OIDC role for the dev-only 5432 toggle (ADR-005)
 ├── ec2_deploy_key.pub   # committed deploy public key (Terraform reads it here)
 ├── user_data.sh.tftpl   # first boot: Docker + Compose, swapfile, simulation-net, backup cron, nginx + Let's Encrypt, post-quantum SSH KEX
 └── outputs.tf
 
 .github/workflows/
 ├── infra.yml            # terraform plan / apply
-└── deploy.yml           # discover containers → build + push + deploy
+├── deploy.yml           # discover containers → build + push + deploy
+└── db-access.yml        # manual dev-only simulationDB access toggle (ADR-005)
 ```
 
 ---
@@ -205,10 +207,13 @@ terraform apply -var "my_ip_cidr=$(curl -s -4 ifconfig.me)/32"
 > modest tradeoff. To lock SSH back to just your IP, set `ssh_open = false`; then
 > deploys must run from your machine, not CI.
 
-Then record the instance IP as the deploy target:
+Then record the instance IP as the deploy target, and wire up the db-access
+toggle (ADR-005) variables:
 
 ```bash
 gh secret set EC2_HOST --body "$(terraform -chdir=infra output -raw public_ip)"
+gh variable set DB_ACCESS_ROLE_ARN --body "$(terraform -chdir=infra output -raw db_access_role_arn)"
+gh variable set DB_SG_ID           --body "$(terraform -chdir=infra output -raw security_group_id)"
 ```
 
 Also point the **DNS A records** for `app_domain` (default
@@ -359,6 +364,20 @@ Sundays 03:10 UTC) that pipes `pg_dump` gzipped into the private
 grants write-only access to the backup prefix, so a compromised box can't read
 or delete existing backups. The restore drill is
 [ADR-004](../docs/adr/004-simulationdb-restore-verification.md).
+
+**Dev-only simulationDB access toggle**
+([ADR-005](../docs/adr/005-simulationdb-dev-access-toggle.md)). The DB is
+docker-network-only in normal operation. For temporary developer access, run
+the `db-access` workflow (Actions → db-access → Run workflow) with
+`action: enable` and your IP as a CIDR (`x.x.x.x/32` — `0.0.0.0/0` is
+refused). It opens 5432 on the security group for that CIDR via an
+OIDC-assumed role scoped to just the two SG calls, drops a
+`docker-compose.override.yml` publishing the port, and you connect at
+`db.makejohnacoffee.com:5432` (point that A record at the Elastic IP once;
+Postgres isn't HTTP, so nginx is not in the path). Run it again with
+`action: disable` when done. Fails closed twice over: a scheduled run
+disables nightly (07:00 UTC), and the SG rule lives outside Terraform, so any
+`terraform apply` while enabled reverts to closed.
 
 `user_data.sh.tftpl` also enables a **post-quantum SSH key exchange**
 (`sntrup761x25519-sha512@openssh.com`), which AL2023's OpenSSH supports but
