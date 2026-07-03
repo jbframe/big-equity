@@ -6,6 +6,8 @@ EC2 Docker host via GitHub Actions.
 Each deployable lives under `containers/<name>/`. The provisioning and
 deployment machinery — Terraform, the EC2 host, the CI pipelines, secrets, and
 the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
+Technology choices follow the defaults in
+**[`docs/steering/tech-stack.md`](docs/steering/tech-stack.md)**.
 
 ---
 
