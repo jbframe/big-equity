@@ -46,6 +46,12 @@ variable "certbot_email" {
   default     = "framejb@gmail.com"
 }
 
+variable "backup_bucket_name" {
+  description = "Globally-unique S3 bucket for simulationDB pg_dump backups (ADR-003). Dumps land under simulationdb/ and expire after 30 days."
+  type        = string
+  default     = "big-equity-db-backups-jbframe"
+}
+
 variable "project_name" {
   description = "Name tag / app directory on the box."
   type        = string

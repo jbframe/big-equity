@@ -16,7 +16,7 @@ a different subdomain, so CORS is enabled for that origin only.
 ## Setup
 
 ```sh
-cd simulationAPI
+cd containers/simulationAPI
 npm install
 ```
 

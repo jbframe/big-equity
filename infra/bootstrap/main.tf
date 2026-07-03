@@ -154,6 +154,37 @@ resource "aws_iam_role_policy" "ci" {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = "${aws_s3_bucket.state.arn}/*"
+      },
+      # The main config now manages the instance role/profile and the
+      # simulationDB backup bucket (ADR-003). Both statements are scoped to
+      # the project's name prefixes, not account-wide IAM/S3.
+      # Re-apply bootstrap locally after changing this policy.
+      {
+        Sid    = "InstanceRoleIAM"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole", "iam:DeleteRole", "iam:GetRole",
+          "iam:TagRole", "iam:UntagRole", "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole",
+          "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
+          "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile",
+          "iam:GetInstanceProfile", "iam:TagInstanceProfile",
+          "iam:UntagInstanceProfile", "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile", "iam:PassRole"
+        ]
+        Resource = [
+          "arn:aws:iam::*:role/big-equity-*",
+          "arn:aws:iam::*:instance-profile/big-equity-*"
+        ]
+      },
+      {
+        Sid    = "DBBackupBucket"
+        Effect = "Allow"
+        Action = "s3:*"
+        Resource = [
+          "arn:aws:s3:::big-equity-db-backups-*",
+          "arn:aws:s3:::big-equity-db-backups-*/*"
+        ]
       }
     ]
   })

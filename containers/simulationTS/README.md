@@ -7,12 +7,12 @@ split between the best high hand and the best qualifying low hand.
 
 ## Prerequisites
 
-- Node.js 18+ (developed on Node 21)
+- Node.js 24 (LTS — see `.nvmrc`)
 
 ## Setup
 
 ```sh
-cd simulationTS
+cd containers/simulationTS
 npm install
 ```
 
@@ -49,6 +49,7 @@ suit, any casing, with ten written as either `10` or `T` (e.g. `"10c"`, `"Tc"`,
 | `src/evaluation.ts`   | 5-card high/low hand scoring and winner comparison      |
 | `src/simulation.ts`   | Monte Carlo loop, equity math, result formatting        |
 | `src/main.ts`         | Example matchups (entry point)                          |
+| `src/evaluation.test.ts` | Unit tests for parsing and hand evaluation           |
 
 ## Relationship to simulationPY
 

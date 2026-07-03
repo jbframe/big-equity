@@ -15,7 +15,7 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | --- | --- | --- |
 | `simulationPY` | Poker equity simulator — given hero/villain hands and a board, it runs out the remaining cards and reports each player's equity. Stdlib-only Python. | [containers/simulationPY/README.md](containers/simulationPY/README.md) |
 | `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
-| `simulationWeb` | Browser front-end for the equity simulator. React + Framer Motion; the Monte Carlo runs client-side in a Web Worker. Served static via nginx. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
+| `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
 | `simulationAPI` | Fastify HTTP API backend (TypeScript, zod-validated routes); will be the CRUD layer in front of a future private DB container. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
 | `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; simulationAPI is its sole client. | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
 
@@ -37,12 +37,15 @@ graph TD
     subgraph BG[" "]
     direction TB
     Client["🌐 Browser<br/><b>https://allin.makejohnacoffee.com</b>"]
+    APIClient["🌐 API client<br/><b>https://api.makejohnacoffee.com</b>"]
     LE["🔐 Let's Encrypt CA<br/>ACME"]
 
-    Client -- "DNS → 35.169.127.234" --> Port80
+    Client --> Port80
     Client -- "DNS → 35.169.127.234" --> Port443
+    APIClient --> Port80
+    APIClient -- "DNS → 35.169.127.234" --> Port443
 
-    subgraph EC2["AWS EC2 Instance"]
+    subgraph EC2["AWS EC2 Instance · t3.micro<br/>Amazon Linux 2023 (latest via SSM)"]
         direction TB
 
         subgraph SG["🛡️ Security Group · ingress"]
@@ -61,10 +64,10 @@ graph TD
 
         subgraph Docker["Docker containers"]
             direction LR
-            Web["<b>simulationWeb</b><br/>:8080 · 🌍 exposed via nginx :443"]
-            API["simulationAPI<br/>Fastify · :3003 · 🌍 exposed via nginx :443"]
-            PY["simulationPY<br/>batch · no ports · 🔒 private"]
-            TS["simulationTS<br/>batch · no ports · 🔒 private"]
+            Web["<b>simulationWeb</b><br/>nginx:alpine · static<br/>:8080 · 🌍 exposed via nginx :443"]
+            API["simulationAPI<br/>Fastify · node:24-alpine<br/>:3003 · 🌍 exposed via nginx :443"]
+            PY["simulationPY<br/>python:3.14-alpine<br/>batch · no ports · 🔒 private"]
+            TS["simulationTS<br/>node:24-alpine<br/>batch · no ports · 🔒 private"]
         end
 
         Nginx -- "allin subdomain · :443<br/>proxy_pass localhost:8080" --> Web
@@ -80,6 +83,7 @@ graph TD
 
     style BG fill:#000000,stroke:#000000
     style Client fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
+    style APIClient fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
     style LE fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
     style Port80 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
     style Port443 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
@@ -104,6 +108,7 @@ graph TD
 ```
 .
 ├── containers/              # one self-contained, deployable container per dir
+├── docs/                    # ADRs (docs/adr/) and steering docs (docs/steering/)
 ├── infra/                   # Terraform + deployment — see infra/README.md
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
 ```
