@@ -68,9 +68,11 @@ Keeping them separate means an app deploy can never accidentally destroy or
 recreate the instance.
 
 The `deploy` pipeline auto-discovers every `containers/<name>/` that has a
-`Dockerfile` and fans out over them with a build matrix. Each container becomes
-its own image (`ghcr.io/<owner>/<repo>/<name>`) and runs from its own directory
-on the box (`~/containers/<name>/`). **Adding a new container is just a new
+`docker-compose.yml` and fans out over them with a build matrix. Dirs with a
+`Dockerfile` become their own image (`ghcr.io/<owner>/<repo>/<name>`);
+compose-only dirs run an upstream image and skip the build (e.g.
+`simulationDB`, ADR-003). Every container runs from its own directory on the
+box (`~/containers/<name>/`). **Adding a new container is just a new
 folder** — no workflow edits.
 
 ---
@@ -220,8 +222,11 @@ every deploy** (via `scp`, then `docker compose up -d`), and creates an empty
 that needs no config.
 
 The one thing the pipeline can't supply is **real secrets**: `.env` is
-intentionally not in the repo. If a container needs environment values, place its
-`.env` on the box once:
+intentionally not in the repo. Two exceptions manage themselves: the pipeline
+*writes* `simulationDB`'s and `simulationAPI`'s `.env` on every deploy from
+the `SIMULATIONDB_PASSWORD` GitHub secret (ADR-003) — nothing to seed, and
+rotation is "update the secret + redeploy". For any other container that
+needs environment values, place its `.env` on the box once:
 
 ```bash
 IP=$(terraform -chdir=infra output -raw public_ip)

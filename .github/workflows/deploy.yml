@@ -7,8 +7,10 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  # Discover every containers/<name>/ that has a Dockerfile, so adding a new
-  # container is just a new folder — no workflow edits needed.
+  # Discover every containers/<name>/ that has a docker-compose.yml, so adding
+  # a new container is just a new folder — no workflow edits needed. Dirs with
+  # a Dockerfile get built and pushed to GHCR; compose-only dirs (upstream
+  # images, e.g. simulationDB per ADR-003) skip the build and just deploy.
   discover:
     runs-on: ubuntu-latest
     outputs:
@@ -17,11 +19,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - id: find
         run: |
-          dirs=$(find containers -mindepth 1 -maxdepth 1 -type d \
-                   -exec test -e '{}/Dockerfile' \; -print \
-                 | xargs -n1 basename | jq -R . | jq -cs .)
-          echo "containers=$dirs" >> "$GITHUB_OUTPUT"
-          echo "Found: $dirs"
+          containers=$(for d in containers/*/; do
+            name=$(basename "$d")
+            [ -f "$d/docker-compose.yml" ] || continue
+            [ -f "$d/Dockerfile" ] && build=true || build=false
+            echo "{\"name\":\"$name\",\"build\":$build}"
+          done | jq -cs .)
+          echo "containers=$containers" >> "$GITHUB_OUTPUT"
+          echo "Found: $containers"
 
   deploy:
     needs: discover
@@ -30,6 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         container: ${{ fromJson(needs.discover.outputs.containers) }}
+    name: deploy (${{ matrix.container.name }})
     permissions:
       contents: read
       packages: write # push to GHCR
@@ -37,15 +43,17 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Compute image name (GHCR requires lowercase)
+        if: matrix.container.build
         id: vars
         env:
-          MATRIX_CONTAINER: ${{ matrix.container }}
+          MATRIX_CONTAINER: ${{ matrix.container.name }}
         run: |
           repo="${GITHUB_REPOSITORY,,}"
           name="${MATRIX_CONTAINER,,}"
           echo "image=ghcr.io/${repo}/${name}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
+        if: matrix.container.build
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
@@ -53,9 +61,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        if: matrix.container.build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
-          context: containers/${{ matrix.container }}
+          context: containers/${{ matrix.container.name }}
           push: true
           tags: |
             ${{ steps.vars.outputs.image }}:latest
@@ -67,29 +76,62 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: containers/${{ matrix.container }}/docker-compose.yml
-          target: ~/containers/${{ matrix.container }}
+          source: containers/${{ matrix.container.name }}/docker-compose.yml
+          target: ~/containers/${{ matrix.container.name }}
           strip_components: 2
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
-          IMAGE: ${{ steps.vars.outputs.image }}:${{ github.sha }}
-          CONTAINER: ${{ matrix.container }}
+          IMAGE: ${{ matrix.container.build && format('{0}:{1}', steps.vars.outputs.image, github.sha) || '' }}
+          CONTAINER: ${{ matrix.container.name }}
+          BUILD: ${{ matrix.container.build }}
+          SIMULATIONDB_PASSWORD: ${{ secrets.SIMULATIONDB_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE,CONTAINER
+          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD
           script: |
             set -e
+            # Private path between simulationAPI and simulationDB (ADR-003).
+            # user_data creates it at first boot; this covers boxes that
+            # predate that script.
+            docker network create simulation-net || true
             cd ~/containers/$CONTAINER
             [ -f .env ] || touch .env          # env_file needs it to exist
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose pull
-            # Refresh the box's local :latest so a bare `docker compose run`
-            # (which defaults to :latest and never pulls) reflects this deploy
-            # instead of a stale cached image.
-            docker pull "${IMAGE%:*}:latest"
+
+            # Secret-derived .env files, rewritten on every deploy so a
+            # password rotation is just "update the secret + redeploy"
+            # (ADR-003). Other containers keep their hand-seeded .env.
+            if [ "$CONTAINER" = "simulationDB" ] || [ "$CONTAINER" = "simulationAPI" ]; then
+              if [ -z "$SIMULATIONDB_PASSWORD" ]; then
+                echo "SIMULATIONDB_PASSWORD secret is not set" >&2
+                exit 1
+              fi
+            fi
+            if [ "$CONTAINER" = "simulationDB" ]; then
+              cat > .env <<EOF
+            POSTGRES_USER=simulation
+            POSTGRES_PASSWORD=$SIMULATIONDB_PASSWORD
+            POSTGRES_DB=simulation
+            EOF
+            fi
+            if [ "$CONTAINER" = "simulationAPI" ]; then
+              cat > .env <<EOF
+            DATABASE_URL=postgresql://simulation:$SIMULATIONDB_PASSWORD@simulationdb:5432/simulation
+            EOF
+            fi
+
+            if [ "$BUILD" = "true" ]; then
+              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+              docker compose pull
+              # Refresh the box's local :latest so a bare `docker compose run`
+              # (which defaults to :latest and never pulls) reflects this deploy
+              # instead of a stale cached image.
+              docker pull "${IMAGE%:*}:latest"
+            else
+              docker compose pull
+            fi
             docker compose up -d
             docker image prune -f
