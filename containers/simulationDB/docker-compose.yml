@@ -1,0 +1,44 @@
+# Lives on the EC2 box at ~/containers/simulationDB/docker-compose.yml.
+# No Dockerfile here: this runs the upstream postgres image, digest-pinned
+# (ADR-003). The deploy pipeline syncs this file, writes .env
+# (POSTGRES_USER/PASSWORD/DB) from the SIMULATIONDB_PASSWORD secret, and
+# runs `up -d`.
+services:
+  db:
+    image: postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
+    # Stable name for the backup cron's `docker exec simulationdb pg_dump`.
+    container_name: simulationdb
+    restart: unless-stopped
+    # Private by design: no `ports:` key at all — reachable only over
+    # simulation-net, with simulationAPI as the sole client (ADR-003).
+    # Temporary dev access is ADR-005's toggle, not a standing port.
+    env_file: .env
+    # Memory guardrails for the 916 MiB box: cap the container and shrink
+    # shared_buffers from the 128MB default; the swapfile (infra) is the
+    # second layer of defense.
+    command: -c shared_buffers=64MB
+    mem_limit: 256m
+    volumes:
+      # PG 18 image gotcha: PGDATA is now version-specific
+      # (/var/lib/postgresql/18/docker), so mount /var/lib/postgresql — the
+      # pre-18 path (.../data) silently leaves data outside the volume.
+      - simulationdb-data:/var/lib/postgresql
+    networks:
+      - simulation-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  # Data survives restarts and redeploys; a box rebuild destroys it — the
+  # weekly pg_dump-to-S3 cron (infra) is the durability story, ADR-004 the
+  # restore drill.
+  simulationdb-data:
+
+networks:
+  # Created by user_data at first boot and idempotently by deploy.yml.
+  simulation-net:
+    external: true

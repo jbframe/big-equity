@@ -17,6 +17,7 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
 | `simulationAPI` | Fastify HTTP API backend (TypeScript, zod-validated routes); will be the CRUD layer in front of a future private DB container. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
+| `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; simulationAPI is its sole client. | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
 
 ### Public internet exposure
 
@@ -25,7 +26,8 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
 | `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
-| `simulationAPI` | Yes | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
+| `simulationAPI` | Yes (provisioned at boot; live after the next box rebuild) | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
+| `simulationDB` | No | Docker network only ([ADR-003](docs/adr/003-simulationdb-container.md)); dev-only toggle per [ADR-005](docs/adr/005-simulationdb-dev-access-toggle.md) |
 
 How the exposure works (see [ADR-001](docs/adr/001-expose-simulationweb.md); the API follows the same pattern per [ADR-002](docs/adr/002-fastify-backend-container.md), plus per-IP rate limiting at the proxy):
 
@@ -118,6 +120,8 @@ graph TD
 1. Create `containers/<newname>/` with a `Dockerfile` and a `docker-compose.yml`
    (copy `simulationPY`'s as a template; point the compose `image` default at
    `ghcr.io/YOURUSER/big-equity/<newname>` — lowercased, GHCR requires it).
+   Running an upstream image instead? Skip the Dockerfile — a compose-only
+   directory deploys without the build step (like `simulationDB`).
 2. If it needs secrets, drop an `.env` on the box once — see [step 6 in the infra guide](infra/README.md#6-optional-give-a-container-its-env). Otherwise there's nothing to seed; the deploy pipeline syncs the compose file for you.
 3. Push to `main` — the deploy pipeline auto-discovers the new folder and ships it.
 

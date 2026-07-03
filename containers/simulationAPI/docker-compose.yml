@@ -9,6 +9,12 @@ services:
     # path in; the container never listens on a public interface.
     ports:
       - "127.0.0.1:3003:3003"
+    # DATABASE_URL, written by the deploy pipeline from the
+    # SIMULATIONDB_PASSWORD secret (ADR-003).
+    env_file: .env
+    # Shared private network with simulationDB — the API is its only client.
+    networks:
+      - simulation-net
     # node:24-alpine ships busybox wget but no curl, so the liveness probe
     # uses wget. Reports health even before the nginx server block exists.
     healthcheck:
@@ -17,3 +23,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+networks:
+  # Created by user_data at first boot and idempotently by deploy.yml.
+  simulation-net:
+    external: true
