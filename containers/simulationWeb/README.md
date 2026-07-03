@@ -5,7 +5,7 @@ is being built up incrementally.
 
 ## Prerequisites
 
-- Node.js 18+ (developed on Node 24)
+- Node.js 24 (LTS — see `.nvmrc`)
 
 ## Run
 
