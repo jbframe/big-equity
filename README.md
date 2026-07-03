@@ -38,9 +38,9 @@ graph TD
     APIClient["🌐 API client<br/><b>https://api.makejohnacoffee.com</b>"]
     LE["🔐 Let's Encrypt CA<br/>ACME"]
 
-    Client -- "DNS → 35.169.127.234" --> Port80
+    Client --> Port80
     Client -- "DNS → 35.169.127.234" --> Port443
-    APIClient -- "DNS → 35.169.127.234" --> Port80
+    APIClient --> Port80
     APIClient -- "DNS → 35.169.127.234" --> Port443
 
     subgraph EC2["AWS EC2 Instance · t3.micro<br/>Amazon Linux 2023 (latest via SSM)"]

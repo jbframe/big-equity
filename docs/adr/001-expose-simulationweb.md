@@ -45,7 +45,7 @@ graph TD
     Client["🌐 Browser<br/><b>https://allin.makejohnacoffee.com</b>"]
     LE["🔐 Let's Encrypt CA<br/>ACME"]
 
-    Client -- "DNS → 35.169.127.234" --> Port80
+    Client --> Port80
     Client -- "DNS → 35.169.127.234" --> Port443
 
     subgraph EC2["AWS EC2 Instance"]
