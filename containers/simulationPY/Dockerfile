@@ -5,7 +5,7 @@ FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5
 
 WORKDIR /app
 
-# Dependencies first for better layer caching. (simulationV1 is stdlib-only
+# Dependencies first for better layer caching. (simulationPY is stdlib-only
 # today, but this keeps the image ready for when you add packages.)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

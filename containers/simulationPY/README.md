@@ -10,12 +10,12 @@ Steps to update env:
 1/ Execute $ conda env update --name be -f be.yml
 
 Running locally:
-simulationV1 is stdlib-only, so you can run it directly:
+simulationPY is stdlib-only, so you can run it directly:
 
-    cd containers/simulationV1
+    cd containers/simulationPY
     python main.py
 
 Or via Docker, exactly as it runs in production:
 
-    docker build -t simulationv1 containers/simulationV1
-    docker run --rm simulationv1
+    docker build -t simulationpy containers/simulationPY
+    docker run --rm simulationpy

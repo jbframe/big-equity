@@ -1,6 +1,6 @@
 /**
- * Entry point: run a couple of example Big O Hi-Lo matchups, mirroring the
- * original simulationV1 `main.py`.
+ * Entry point: run a couple of example poker Hi-Lo matchups, mirroring the
+ * original simulationPY `main.py`.
  */
 
 import { printResult, simulateBoard } from "./simulation.js";

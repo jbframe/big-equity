@@ -1,9 +1,9 @@
-# simulationV2
+# simulationTS
 
-A TypeScript rewrite of `simulationV1` — a Monte Carlo equity simulator for
-**Big O** (5-card Omaha Hi-Lo, 8-or-better). Each player holds 5 hole cards and
-must use exactly 2 hole cards + 3 board cards. The pot is split between the best
-high hand and the best qualifying low hand.
+A TypeScript rewrite of `simulationPY` — a Monte Carlo equity simulator for
+**poker**. The current variant is 5-card Omaha Hi-Lo (8-or-better): each player
+holds 5 hole cards and must use exactly 2 hole cards + 3 board cards. The pot is
+split between the best high hand and the best qualifying low hand.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ high hand and the best qualifying low hand.
 ## Setup
 
 ```sh
-cd simulationV2
+cd simulationTS
 npm install
 ```
 
@@ -50,6 +50,6 @@ suit, any casing, with ten written as either `10` or `T` (e.g. `"10c"`, `"Tc"`,
 | `src/simulation.ts`   | Monte Carlo loop, equity math, result formatting        |
 | `src/main.ts`         | Example matchups (entry point)                          |
 
-## Relationship to simulationV1
+## Relationship to simulationPY
 
 The hand-scoring logic is a faithful port of the Python original.

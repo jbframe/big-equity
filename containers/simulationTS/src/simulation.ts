@@ -1,5 +1,5 @@
 /**
- * Monte Carlo equity simulation for a single Big O Hi-Lo matchup.
+ * Monte Carlo equity simulation for a single poker Hi-Lo matchup.
  *
  * Given two 5-card hands and a partial board, the simulator repeatedly deals
  * out the remaining board cards at random and tallies high/low/scoop outcomes,

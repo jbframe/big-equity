@@ -25,5 +25,5 @@ WORKDIR /app
 COPY package.json ./
 COPY --from=build /app/dist ./dist
 
-# simulationV2 is a batch job: main.js runs the example matchups and exits.
+# simulationTS is a batch job: main.js runs the example matchups and exits.
 CMD ["node", "dist/main.js"]
