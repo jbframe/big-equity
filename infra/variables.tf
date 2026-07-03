@@ -22,10 +22,22 @@ variable "ssh_open" {
   default     = true
 }
 
-variable "open_http" {
-  description = "Whether to open port 80 to the world. Set false for non-web batch workloads."
+variable "open_web" {
+  description = "Open HTTP/HTTPS (ports 80/443) to the world so nginx can serve the app and answer ACME challenges. Set false for non-web batch workloads."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "app_domain" {
+  description = "Hostname nginx serves simulationWeb on (ADR-001). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  type        = string
+  default     = "allin.makejohnacoffee.com"
+}
+
+variable "certbot_email" {
+  description = "Email Let's Encrypt uses for certificate expiry / problem notices."
+  type        = string
+  default     = "framejb@gmail.com"
 }
 
 variable "project_name" {

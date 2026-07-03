@@ -1,0 +1,80 @@
+#!/bin/bash
+set -eux
+
+# Rendered by Terraform's templatefile(): $${app_domain} and $${certbot_email}
+# are substituted at plan time. Shell expansions like $${var} must be escaped
+# as double-dollar in this file.
+
+# --- Docker engine ---
+dnf update -y
+dnf install -y docker
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# --- Docker Compose v2 (CLI plugin) ---
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# --- Post-quantum SSH key exchange ---
+# AL2023 ships OpenSSH 8.7, which supports the sntrup761x25519 hybrid KEX but
+# doesn't enable it by default. Prefer it so clients don't fall back to a
+# classical-only exchange (avoids the "not using a post-quantum key exchange"
+# warning and store-now-decrypt-later exposure). mlkem768 would need OpenSSH 9.9+.
+cat >/etc/ssh/sshd_config.d/50-pq-kex.conf <<'EOF'
+KexAlgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+EOF
+sshd -t && systemctl restart sshd
+
+# --- Root dir the deploy pipeline syncs per-container subdirs into ---
+mkdir -p /home/ec2-user/containers
+chown ec2-user:ec2-user /home/ec2-user/containers
+
+# --- Nginx reverse proxy + Let's Encrypt (ADR-001) ---
+# simulationWeb binds to 127.0.0.1:8080 only; nginx terminates TLS on 443 and
+# routes by hostname, so exposing a future container is one more server block
+# on its own subdomain.
+dnf install -y nginx certbot python3-certbot-nginx
+
+# HTTP-only vhost to start. certbot --nginx rewrites it below: adds the 443
+# TLS server block and the 80 -> 443 redirect.
+cat >/etc/nginx/conf.d/${app_domain}.conf <<'EOF'
+server {
+    listen 80;
+    server_name ${app_domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+nginx -t
+systemctl enable --now nginx
+
+# Reload nginx whenever certbot deploys a renewed certificate.
+mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+cat >/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh <<'EOF'
+#!/bin/bash
+systemctl reload nginx
+EOF
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+
+# At first boot the Elastic IP (where DNS points) may not be attached yet, so
+# the HTTP-01 challenge can land on the wrong box — retry until the EIP is on
+# (usually the first or second attempt succeeds).
+for attempt in $(seq 1 40); do
+  if certbot --nginx -d "${app_domain}" --non-interactive --agree-tos \
+       -m "${certbot_email}" --redirect; then
+    break
+  fi
+  echo "certbot attempt $attempt failed; retrying in 30s"
+  sleep 30
+done
+
+# The certbot RPM ships a systemd timer that runs `certbot renew` twice a day.
+systemctl enable --now certbot-renew.timer

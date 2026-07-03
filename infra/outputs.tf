@@ -8,6 +8,11 @@ output "ssh" {
   value       = "ssh -i ~/.ssh/ec2_deploy_key ec2-user@${aws_eip.app.public_ip}"
 }
 
+output "app_url" {
+  description = "Public URL nginx serves simulationWeb on (ADR-001)."
+  value       = "https://${var.app_domain}"
+}
+
 output "instance_id" {
   description = "EC2 instance ID (handy for SSM Session Manager)."
   value       = aws_instance.app.id

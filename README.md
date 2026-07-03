@@ -24,6 +24,72 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
 | `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
+
+How the exposure works (see [ADR-001](docs/adr/001-expose-simulationweb.md)):
+
+```mermaid
+%%{init: {'themeVariables': {'edgeLabelBackground': '#000000'}}}%%
+graph TD
+    subgraph BG[" "]
+    direction TB
+    Client["🌐 Browser<br/><b>https://allin.makejohnacoffee.com</b>"]
+    LE["🔐 Let's Encrypt CA<br/>ACME"]
+
+    Client -- "DNS → 35.169.127.234" --> Port80
+    Client -- "DNS → 35.169.127.234" --> Port443
+
+    subgraph EC2["AWS EC2 Instance"]
+        direction TB
+
+        subgraph SG["🛡️ Security Group · ingress"]
+            direction LR
+            Port80[":80 HTTP<br/>allow 0.0.0.0/0"]
+            Port443[":443 HTTPS<br/>allow 0.0.0.0/0"]
+        end
+        Port80 -. "301 redirect" .-> Port443
+
+        Nginx["<b>Nginx Reverse Proxy</b><br/>hostname-based routing<br/>TLS termination"]
+        Port443 --> Nginx
+
+        Certbot["certbot<br/>installed via user_data.sh.tftpl"]
+        Certs[("/etc/letsencrypt/live/<br/>allin.makejohnacoffee.com/<br/>fullchain.pem · privkey.pem")]
+        Timer["⏱ certbot renew<br/>systemd timer · 2×/day"]
+
+        subgraph Docker["Docker containers"]
+            direction LR
+            Web["<b>simulationWeb</b><br/>:8080 · 🌍 exposed"]
+            PY["simulationPY<br/>:3001 · 🔒 private"]
+            TS["simulationTS<br/>:3002 · 🔒 private"]
+        end
+
+        Nginx -- "proxy_pass<br/>localhost:8080" --> Web
+    end
+
+    Certbot -- "1. cert request (ACME)" --> LE
+    LE -. "2. HTTP-01 challenge<br/>GET /.well-known/acme-challenge/…" .-> Port80
+    Certbot -- "3. writes certs" --> Certs
+    Certs -- "4. loaded via ssl_certificate /<br/>ssl_certificate_key" --> Nginx
+    Timer -. "renew + reload nginx" .-> Certbot
+    end
+
+    style BG fill:#000000,stroke:#000000
+    style Client fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
+    style LE fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
+    style Port80 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
+    style Port443 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
+    style Nginx fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
+    style Web fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
+    style PY fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
+    style TS fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
+    style Certbot fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
+    style Certs fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
+    style Timer fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
+    style EC2 fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#ffffff
+    style SG fill:transparent,stroke:#eab308,stroke-dasharray:6 4,stroke-width:2px,color:#ffffff
+    style Docker fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#ffffff
+    linkStyle default stroke:#94a3b8,color:#ffffff
+```
+
 ---
 
 ## Repository layout
@@ -31,13 +97,9 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 ```
 .
 ├── containers/              # one self-contained, deployable container per dir
-<<<<<<< HEAD
 │   ├── simulationPY/        # poker equity simulator (Python)
 │   ├── simulationTS/        # poker equity simulator (TypeScript)
 │   └── simulationWeb/       # browser UI for the simulator
-=======
-│   └── simulationPY/        # the poker equity sim
->>>>>>> 306efb7 (Rename sim containers to simulationPY/TS, add simulationWeb)
 ├── infra/                   # Terraform + deployment — see infra/README.md
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
 ```
