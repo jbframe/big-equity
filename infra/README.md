@@ -366,7 +366,8 @@ authentication and per-user limits live in the API itself.
 First boot also creates the `simulation-net` docker network (the private path
 between simulationAPI and simulationDB — no host ports on the DB), adds a
 1 GiB swapfile (512 MiB before FusionAuth, ADR-006) so a Postgres or JVM memory
-spike can't summon the OOM killer on the 2 GiB t3.small box, and installs a
+spike can't summon the OOM killer on the 916 MiB t3.micro box — FusionAuth's
+JVM is expected to lean on it in steady state — and installs a
 weekly cron (`/usr/local/bin/simulationdb-backup.sh`,
 Sundays 03:10 UTC) that pipes `pg_dump` gzipped into the private
 `db_backups.tf` bucket — both the `simulation` database and FusionAuth's
@@ -398,9 +399,10 @@ the deploy session.
 
 ## Cost & teardown
 
-- `t3.small` + 20 GB gp3 + 1 Elastic IP runs on the order of ~$15–20/mo (the
-  t3.small bump for FusionAuth's JVM, ADR-006, takes it past the `t3.micro`
-  free-tier). **An Elastic IP attached to a running instance is free; a
+- `t3.micro` + 20 GB gp3 + 1 Elastic IP is roughly free-tier eligible for the
+  first year; after that, on the order of a few dollars a month. If FusionAuth
+  (ADR-006) proves too heavy for 1 GiB, `t3.small` lands at ~$15–20/mo.
+  **An Elastic IP attached to a running instance is free; a
   *detached* one is billed** — so if you stop the instance for a while, release
   the EIP.
 - The Terraform **state bucket costs pennies** (single-digit MB of state +

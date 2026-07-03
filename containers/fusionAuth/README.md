@@ -60,10 +60,14 @@ cadence — tighten the cron before real accounts land.
 
 ## Memory
 
-The `t3.small` box has 2 GiB. FusionAuth's JVM heap is `512M`
-(`FUSIONAUTH_APP_MEMORY`); the container is capped at `mem_limit: 1024m`, with
-the infra swapfile as the backstop. Postgres is capped at 256m (its own compose
-file), leaving headroom for both plus the small web/API containers.
+The `t3.micro` box has 916 MiB — this is deliberately the tightest tenant on
+it (ADR-006: start small, grow if it hurts). FusionAuth's JVM heap is `512M`
+(`FUSIONAUTH_APP_MEMORY`); the container is capped at `mem_limit: 640m`, below
+heap+overhead, so overflow spills to the 1 GiB infra swapfile instead of
+starving Postgres (capped at 256m), nginx, and the host. Expect it to lean on
+swap in steady state. If login flows crawl or the container gets OOM-killed,
+the fix is `instance_type = "t3.small"` in `infra/variables.tf` (a box
+rebuild), not raising the cap.
 
 ## Poking at it
 

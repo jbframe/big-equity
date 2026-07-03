@@ -18,9 +18,10 @@ curl -SL https://github.com/docker/compose/releases/latest/download/docker-compo
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 # --- 1 GiB swapfile (ADR-003, resized in ADR-006) ---
-# The t3.small box has 2 GiB and no swap by default. With Postgres and now the
-# FusionAuth JVM (ADR-006) on the box, a memory spike would otherwise go
-# straight to the OOM killer. Second layer of defense alongside the containers'
+# The t3.micro box has 916 MiB and no swap by default. With Postgres and now
+# the FusionAuth JVM (ADR-006) on the box, a memory spike would otherwise go
+# straight to the OOM killer — and FusionAuth is expected to lean on this swap
+# in steady state. Second layer of defense alongside the containers'
 # compose-level mem_limits; bumped 512 MiB -> 1 GiB when FusionAuth joined.
 dd if=/dev/zero of=/swapfile bs=1M count=1024
 chmod 600 /swapfile

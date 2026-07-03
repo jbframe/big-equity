@@ -52,7 +52,7 @@ graph TD
     AuthClient --> Port80
     AuthClient -- "DNS → 35.169.127.234" --> Port443
 
-    subgraph EC2["AWS EC2 Instance · t3.small<br/>Amazon Linux 2023 (latest via SSM)"]
+    subgraph EC2["AWS EC2 Instance · t3.micro<br/>Amazon Linux 2023 (latest via SSM)"]
         direction TB
 
         subgraph SG["🛡️ Security Group · ingress"]

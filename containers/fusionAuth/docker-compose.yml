@@ -24,10 +24,12 @@ services:
     networks:
       - simulation-net
     # OpenSearch is off (SEARCH_TYPE=database in .env), so this JVM is the only
-    # heavy tenant. Heap is 512M (FUSIONAUTH_APP_MEMORY); cap the container a bit
-    # above that and lean on the swapfile (infra) as the backstop. The t3.small
-    # box has 2 GiB — Postgres is capped at 256m, leaving room for this.
-    mem_limit: 1024m
+    # heavy tenant. Heap is 512M (FUSIONAUTH_APP_MEMORY). The t3.micro box has
+    # 916 MiB total, so this cap is deliberately below heap+overhead: pages
+    # past it spill to the 1 GiB swapfile (infra) instead of letting the JVM
+    # starve Postgres (capped at 256m), nginx, and the host. If it thrashes,
+    # ADR-006 says bump the instance to t3.small before raising this.
+    mem_limit: 640m
     # The fusionauth-app image ships curl; /api/status returns 200 once the app
     # is up and the DB schema is migrated (first boot takes ~30s with database
     # search, vs minutes with a search engine).

@@ -5,9 +5,9 @@ variable "region" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. t3.small (2 GiB) gives the FusionAuth JVM (ADR-006) room alongside Postgres; t3.micro (free-tier, 1 GiB) is too tight once FusionAuth joins the box."
+  description = "EC2 instance type. t3.micro is free-tier-eligible but tight with the FusionAuth JVM aboard (ADR-006) — bump to t3.small if the box thrashes or OOMs."
   type        = string
-  default     = "t3.small"
+  default     = "t3.micro"
 }
 
 variable "my_ip_cidr" {

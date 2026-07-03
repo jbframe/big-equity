@@ -45,8 +45,10 @@ FusionAuth runs as a compose-only container (`containers/fusionAuth/`, upstream
 - publishes loopback-only `127.0.0.1:9011`; nginx terminates TLS for
   **`id.makejohnacoffee.com`** and proxies to it (ADR-001 pattern)
 
-The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB →
-1 GiB** to hold the JVM alongside Postgres.
+The box **stays t3.micro** (916 MiB) for now — start small, measure, and bump
+to t3.small only if the JVM proves too heavy (decided 2026-07-03). The swapfile
+grows **512 MiB → 1 GiB** to absorb the squeeze; FusionAuth is expected to lean
+on swap in steady state.
 
 ## Rationale
 - **One database engine, isolated data.** FusionAuth's own `fusionauth`
@@ -69,10 +71,13 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
   never listens on a public interface.
 
 ## Tradeoffs
-- **A JVM on a small box.** FusionAuth's heap is `512M` (`FUSIONAUTH_APP_MEMORY`)
-  and the container is capped at `mem_limit: 1024m`; the t3.small bump and the
-  larger swapfile are what make room. If it gets OOM-killed under load, raise
-  the instance size or the cap — this is the tightest tenant on the box.
+- **A JVM on a very small box.** FusionAuth's heap is `512M`
+  (`FUSIONAUTH_APP_MEMORY`) and the container is capped at `mem_limit: 640m` —
+  deliberately below heap+overhead on the 916 MiB t3.micro, so overflow spills
+  to the 1 GiB swapfile instead of starving Postgres and nginx. Swap-backed JVM
+  pages mean slower GC pauses and login latency under load; that's the accepted
+  price of staying free-tier. The escape hatch is `instance_type = "t3.small"`
+  (one variable + a box rebuild), not raising the cap.
 - **Backups piggyback on ADR-003's weekly cadence.** The backup cron dumps the
   `fusionauth` database alongside `simulation` (each to its own write-only S3
   prefix, same 30-day expiry), so auth data survives a box rebuild — but only
@@ -89,7 +94,7 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
 ## Implementation
 1. **Container** — `containers/fusionAuth/docker-compose.yml`: upstream
    `fusionauth/fusionauth-app:1.68.0`, `container_name: fusionauth`,
-   `127.0.0.1:9011:9011`, `simulation-net` (external), `mem_limit: 1024m`,
+   `127.0.0.1:9011:9011`, `simulation-net` (external), `mem_limit: 640m`,
    healthcheck on `/api/status`. No Dockerfile.
 2. **Secrets / .env** — `deploy.yml` writes `containers/fusionAuth/.env` on every
    deploy from `SIMULATIONDB_PASSWORD` (as `DATABASE_ROOT_*`) and a new
@@ -97,7 +102,8 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
    `FUSIONAUTH_APP_MEMORY=512M`, `FUSIONAUTH_APP_RUNTIME_MODE=production`,
    `FUSIONAUTH_APP_URL=http://localhost:9011` (internal self-URL; the public URL
    is derived from proxied `Host` + `X-Forwarded-Proto`).
-3. **Instance** — `instance_type` default `t3.micro → t3.small` (variables.tf).
+3. **Instance** — stays `t3.micro`; `variables.tf` documents t3.small as the
+   upgrade path if the box thrashes or OOMs.
 4. **Nginx + TLS** — `user_data.sh.tftpl`: new `auth_perip` rate-limit zone, an
    `${auth_domain}` vhost proxying to `127.0.0.1:9011` (with
    `client_max_body_size 64m`), and `${auth_domain}` added to the certbot loop.
@@ -109,7 +115,7 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
    prefix; it skips `fusionauth` cleanly until FusionAuth's first boot creates
    it. `db_backups.tf` adds the `fusionauth/` lifecycle rule (30-day expiry)
    and the write-only `s3:PutObject` grant on that prefix.
-7. **Box rebuild** — the `instance_type` and `user_data` changes both force an
-   instance replacement (`user_data_replace_on_change = true`). Add the
+7. **Box rebuild** — the `user_data` changes force an instance replacement
+   (`user_data_replace_on_change = true`). Add the
    `id.makejohnacoffee.com` DNS A record → Elastic IP and set the
    `FUSIONAUTH_DB_PASSWORD` GitHub secret before rebuilding, then redeploy.
