@@ -32,7 +32,7 @@ URL-safe (alphanumeric) — it's interpolated into that URL unescaped.
 
 ## Memory guardrails
 
-The box has 2 GiB of RAM (t3.small), now shared with the FusionAuth JVM
+The box has 916 MiB of RAM (t3.micro), now shared with the FusionAuth JVM
 ([ADR-006](../../docs/adr/006-fusionauth-container.md)), so these guardrails
 still earn their keep. The compose file caps the container at
 `mem_limit: 256m` and shrinks `shared_buffers` to 64MB (default 128MB); a

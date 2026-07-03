@@ -23,7 +23,7 @@ Three decisions: the auth solution, its database, and its search engine.
 
 ### Database
 1. **Reuse simulationDB, FusionAuth creates its own `fusionauth` database** — one Postgres engine on the box; FusionAuth's silent mode bootstraps its db + role on first boot
-2. **A second, FusionAuth-owned Postgres container** — the vendor default; simplest to copy, but doubles the Postgres footprint on a 2 GiB box
+2. **A second, FusionAuth-owned Postgres container** — the vendor default; simplest to copy, but doubles the Postgres footprint on a 916 MiB box
 
 ### Search engine
 1. **Database search (`SEARCH_TYPE=database`)** — FusionAuth uses Postgres for user search, no search container
