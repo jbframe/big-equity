@@ -1,5 +1,5 @@
 /**
- * Five-card hand evaluation for Big O Hi-Lo.
+ * Five-card hand evaluation for poker Hi-Lo.
  *
  * The scoring scheme is intentionally identical to the original Python
  * implementation so results match: a single integer score per hand where

@@ -1,2 +1,0 @@
-# simulationV1 uses only the Python standard library (random, itertools).
-# Add third-party dependencies here as the project grows.

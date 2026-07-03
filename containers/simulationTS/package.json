@@ -1,7 +1,7 @@
 {
-  "name": "simulation-v2",
+  "name": "simulation-ts",
   "version": "2.0.0",
-  "description": "Monte Carlo equity simulator for Big O (5-card Omaha Hi-Lo, 8-or-better)",
+  "description": "Monte Carlo equity simulator for poker",
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",

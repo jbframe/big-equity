@@ -12,26 +12,38 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Python dependencies for the simulationV1 container (requirements.txt).
+  # Python dependencies for the simulationPY container (requirements.txt).
   - package-ecosystem: pip
-    directory: /containers/simulationV1
+    directory: /containers/simulationPY
     schedule:
       interval: weekly
 
-  # Base image for the simulationV1 container (python:3.12-slim in Dockerfile).
+  # Base image for the simulationPY container (python:3.12-slim in Dockerfile).
   - package-ecosystem: docker
-    directory: /containers/simulationV1
+    directory: /containers/simulationPY
     schedule:
       interval: weekly
 
-  # npm dependencies for the simulationV2 container (package.json / lockfile).
+  # npm dependencies for the simulationTS container (package.json / lockfile).
   - package-ecosystem: npm
-    directory: /containers/simulationV2
+    directory: /containers/simulationTS
     schedule:
       interval: weekly
 
-  # Base image for the simulationV2 container (node:24-alpine in Dockerfile).
+  # Base image for the simulationTS container (node:24-alpine in Dockerfile).
   - package-ecosystem: docker
-    directory: /containers/simulationV2
+    directory: /containers/simulationTS
+    schedule:
+      interval: weekly
+
+  # npm dependencies for the simulationWeb FE container (package.json / lockfile).
+  - package-ecosystem: npm
+    directory: /containers/simulationWeb
+    schedule:
+      interval: weekly
+
+  # Base images for the simulationWeb container (node + nginx in Dockerfile).
+  - package-ecosystem: docker
+    directory: /containers/simulationWeb
     schedule:
       interval: weekly
