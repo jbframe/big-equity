@@ -17,6 +17,53 @@ curl -SL https://github.com/docker/compose/releases/latest/download/docker-compo
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
+# --- 512 MiB swapfile (ADR-003) ---
+# 916 MiB of RAM and no swap by default; with Postgres joining the box, a
+# memory spike would otherwise go straight to the OOM killer. Second layer of
+# defense alongside simulationDB's compose-level mem_limit.
+dd if=/dev/zero of=/swapfile bs=1M count=512
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap defaults 0 0' >>/etc/fstab
+
+# --- Shared docker network (ADR-003) ---
+# Private path between simulationAPI and simulationDB; both compose files
+# declare it `external`. deploy.yml also creates it idempotently, covering
+# boxes that predate this script.
+docker network create simulation-net || true
+
+# --- Weekly simulationDB backup to S3 (ADR-003) ---
+# The named volume survives redeploys but not a box rebuild — these dumps are
+# the durability story. Restore drill is ADR-004. AL2023 ships no cron daemon.
+dnf install -y cronie
+systemctl enable --now crond
+
+cat >/usr/local/bin/simulationdb-backup.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+# Credentials come from the .env the deploy pipeline writes next to
+# simulationDB's compose file. Absent .env means the container hasn't been
+# deployed yet — nothing to back up, not an error.
+ENV_FILE=/home/ec2-user/containers/simulationDB/.env
+if [ ! -f "$ENV_FILE" ]; then
+  echo "$(date -Is) no simulationDB .env; skipping backup"
+  exit 0
+fi
+. "$ENV_FILE"
+
+docker exec simulationdb pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \
+  | gzip \
+  | aws s3 cp - "s3://${backup_bucket}/simulationdb/$(date +%F).sql.gz"
+echo "$(date -Is) backup uploaded"
+EOF
+chmod +x /usr/local/bin/simulationdb-backup.sh
+
+cat >/etc/cron.d/simulationdb-backup <<'EOF'
+10 3 * * 0 root /usr/local/bin/simulationdb-backup.sh >>/var/log/simulationdb-backup.log 2>&1
+EOF
+
 # --- Post-quantum SSH key exchange ---
 # AL2023 ships OpenSSH 8.7, which supports the sntrup761x25519 hybrid KEX but
 # doesn't enable it by default. Prefer it so clients don't fall back to a

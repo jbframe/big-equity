@@ -85,8 +85,9 @@ infra/
 ├── variables.tf
 ├── backend.tf           # S3 remote state config
 ├── main.tf              # VPC lookup, security group, key pair, EC2, Elastic IP
+├── db_backups.tf        # simulationDB backup bucket + instance role (ADR-003)
 ├── ec2_deploy_key.pub   # committed deploy public key (Terraform reads it here)
-├── user_data.sh.tftpl   # first boot: Docker + Compose, nginx + Let's Encrypt, post-quantum SSH KEX
+├── user_data.sh.tftpl   # first boot: Docker + Compose, swapfile, simulation-net, backup cron, nginx + Let's Encrypt, post-quantum SSH KEX
 └── outputs.tf
 
 .github/workflows/
@@ -149,7 +150,9 @@ terraform apply \
 Note the two outputs — `state_bucket` and `role_arn`.
 
 > The bootstrap config uses **local state** by design. Keep its `terraform.tfstate`
-> (it's gitignored). You rarely touch it again.
+> (it's gitignored). You rarely touch it again — the exception is when the CI
+> role's policy in `bootstrap/main.tf` grows (e.g. the ADR-003 IAM/S3 additions):
+> re-run the apply above locally before merging the infra change that needs it.
 
 ### 3. Wire up the backend
 
@@ -277,6 +280,7 @@ What survives a rebuild and what doesn't:
 | TLS certificates (one per subdomain) | 🔁 reissued automatically at boot. Let's Encrypt allows **5 duplicate certs per week** — don't rebuild in a tight loop |
 | Containers & images | 🔁 redeploy them (step 3 below) |
 | Container `.env` files | ❌ gone — re-seed them ([step 6](#6-optional-give-a-container-its-env)) |
+| simulationDB data (named volume) | ❌ gone — restore the latest dump from the backup bucket ([ADR-004](../docs/adr/004-simulationdb-restore-verification.md)) |
 | SSH host key | ❌ new — your next SSH will warn; run `ssh-keygen -R <EC2_HOST IP>`. CI deploys are unaffected (they don't pin host keys) |
 
 After the apply finishes:
@@ -339,6 +343,17 @@ before anything reaches a container: 30 r/s (burst 60) on the web vhost,
 `/etc/nginx/conf.d/00-ratelimit.conf`. Requests over the burst get **429 Too
 Many Requests**. This is flood protection, not auth — per ADR-002,
 authentication and per-user limits live in the API itself.
+
+**simulationDB groundwork** ([ADR-003](../docs/adr/003-simulationdb-container.md)).
+First boot also creates the `simulation-net` docker network (the private path
+between simulationAPI and simulationDB — no host ports on the DB), adds a
+512 MiB swapfile so a Postgres memory spike can't summon the OOM killer on the
+916 MiB box, and installs a weekly cron (`/usr/local/bin/simulationdb-backup.sh`,
+Sundays 03:10 UTC) that pipes `pg_dump` gzipped into the private
+`db_backups.tf` bucket, where dumps expire after 30 days. The instance role
+grants write-only access to the backup prefix, so a compromised box can't read
+or delete existing backups. The restore drill is
+[ADR-004](../docs/adr/004-simulationdb-restore-verification.md).
 
 `user_data.sh.tftpl` also enables a **post-quantum SSH key exchange**
 (`sntrup761x25519-sha512@openssh.com`), which AL2023's OpenSSH supports but
