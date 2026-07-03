@@ -183,7 +183,8 @@ gh variable set MY_IP_CIDR   --body "$(curl -s -4 ifconfig.me)/32"
 ```bash
 gh secret set EC2_SSH_KEY < ~/.ssh/ec2_deploy_key   # the PRIVATE key
 gh secret set GHCR_PAT    --body "<a read:packages PAT>"
-gh secret set SIMULATIONDB_PASSWORD --body "<url-safe db password>"  # simulationDB (ADR-003); also FusionAuth's DB creds for now (ADR-006)
+gh secret set SIMULATIONDB_PASSWORD   --body "<url-safe db password>"  # simulationDB (ADR-003)
+gh secret set FUSIONAUTH_DB_PASSWORD  --body "<fusionauth db password>" # FusionAuth runtime role (ADR-006)
 # EC2_HOST is set after the box exists — see next step.
 ```
 
@@ -235,7 +236,7 @@ The one thing the pipeline can't supply is **real secrets**: `.env` is
 intentionally not in the repo. Two exceptions manage themselves: the pipeline
 *writes* `simulationDB`'s and `simulationAPI`'s `.env` on every deploy from
 the `SIMULATIONDB_PASSWORD` GitHub secret (ADR-003), and `fusionAuth`'s from
-the same secret (ADR-006 — one DB password for now) — nothing to seed,
+`SIMULATIONDB_PASSWORD` + `FUSIONAUTH_DB_PASSWORD` (ADR-006) — nothing to seed,
 and rotation is "update the secret + redeploy". For any other container that
 needs environment values, place its `.env` on the box once:
 

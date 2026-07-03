@@ -24,14 +24,10 @@ migrations to run.
 | `DATABASE_ROOT_USERNAME` | `simulation` (the simulationDB superuser) | first-boot: create the `fusionauth` db + role |
 | `DATABASE_ROOT_PASSWORD` | from `SIMULATIONDB_PASSWORD` | " |
 | `DATABASE_USERNAME` | `fusionauth` | runtime app user |
-| `DATABASE_PASSWORD` | from `SIMULATIONDB_PASSWORD` (reused for now — ADR-006) | runtime app password |
+| `DATABASE_PASSWORD` | from `FUSIONAUTH_DB_PASSWORD` | runtime app password |
 
-Everything comes from the one `SIMULATIONDB_PASSWORD` secret, written into
-`.env` by the deploy pipeline on every deploy (rotation = update the secret +
-redeploy), the same pattern simulationDB uses. Splitting FusionAuth's runtime
-role onto its own password later is a deploy.yml + secret change; note
-FusionAuth stores its DB password, so rotate via its silent-mode config or
-recreate the role.
+Both secrets are written into `.env` by the deploy pipeline on every deploy
+(rotation = update the secret + redeploy), the same pattern simulationDB uses.
 
 ## Search engine — OpenSearch is off
 
@@ -83,5 +79,6 @@ through creating the initial admin user (FusionAuth's Setup Wizard).
 
 Ships through `deploy.yml` like everything else, minus the image build: the
 pipeline creates `simulation-net` idempotently, syncs this compose file, writes
-`.env` from the `SIMULATIONDB_PASSWORD` secret, and runs
-`docker compose up -d`. Liveness is the compose healthcheck (`/api/status`).
+`.env` from the `SIMULATIONDB_PASSWORD` and `FUSIONAUTH_DB_PASSWORD` secrets, and
+runs `docker compose up -d`. Liveness is the compose healthcheck
+(`/api/status`).

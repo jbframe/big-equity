@@ -87,11 +87,12 @@ jobs:
           CONTAINER: ${{ matrix.container.name }}
           BUILD: ${{ matrix.container.build }}
           SIMULATIONDB_PASSWORD: ${{ secrets.SIMULATIONDB_PASSWORD }}
+          FUSIONAUTH_DB_PASSWORD: ${{ secrets.FUSIONAUTH_DB_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD
+          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD,FUSIONAUTH_DB_PASSWORD
           script: |
             set -e
             # Private path between simulationAPI and simulationDB (ADR-003).
@@ -125,12 +126,11 @@ jobs:
 
             # FusionAuth (ADR-006): reuses simulationDB, no bundled Postgres.
             # ROOT_* are the simulationDB superuser (creates the fusionauth db +
-            # role on first boot in silent mode); USERNAME is its own runtime
-            # role, sharing the same password for now (deliberate — see
-            # ADR-006). SEARCH_TYPE=database keeps OpenSearch off.
+            # role on first boot in silent mode); USERNAME/PASSWORD are its own
+            # runtime role. SEARCH_TYPE=database keeps OpenSearch off.
             if [ "$CONTAINER" = "fusionAuth" ]; then
-              if [ -z "$SIMULATIONDB_PASSWORD" ]; then
-                echo "SIMULATIONDB_PASSWORD secret is not set" >&2
+              if [ -z "$SIMULATIONDB_PASSWORD" ] || [ -z "$FUSIONAUTH_DB_PASSWORD" ]; then
+                echo "SIMULATIONDB_PASSWORD and FUSIONAUTH_DB_PASSWORD secrets must be set" >&2
                 exit 1
               fi
               cat > .env <<EOF
@@ -138,7 +138,7 @@ jobs:
             DATABASE_ROOT_USERNAME=simulation
             DATABASE_ROOT_PASSWORD=$SIMULATIONDB_PASSWORD
             DATABASE_USERNAME=fusionauth
-            DATABASE_PASSWORD=$SIMULATIONDB_PASSWORD
+            DATABASE_PASSWORD=$FUSIONAUTH_DB_PASSWORD
             SEARCH_TYPE=database
             FUSIONAUTH_APP_MEMORY=512M
             FUSIONAUTH_APP_RUNTIME_MODE=production
