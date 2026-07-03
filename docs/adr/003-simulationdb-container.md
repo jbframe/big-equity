@@ -4,7 +4,7 @@ Date: 2026-07-03
 
 ## Requirements
 - Add a persistent database container alongside the existing containers, per the plan laid out in ADR-002
-- Private by design: joins a shared docker network with simulationAPI as its only client — no host ports, never internet-reachable in normal operation (ADR-002). Exception: a manual, dev-only toggle for temporary public access (see Implementation)
+- Private by design: joins a shared docker network with simulationAPI as its only client — no host ports, never internet-reachable in normal operation (ADR-002). Exception: a manual, dev-only toggle for temporary public access (ADR-005)
 - All reads/writes flow through simulationAPI's CRUD layer over HTTPS
 - Deploy through the existing pipeline: GHCR image build (or upstream image) + compose file synced to the EC2 box via `.github/workflows/deploy.yml`
 - Data must survive container restarts and redeploys (named volume); story needed for surviving a box rebuild (backups)
@@ -56,7 +56,7 @@ Two choices to make: the database itself, and the ORM that simulationAPI uses to
 - **Another always-on container on a small box.** Measured on the box 2026-07-03: 916 MiB total, ~471 MiB available, **no swap**; simulationAPI + simulationWeb together use ~36 MiB. An idle Postgres (~40–80 MiB) fits comfortably, but the default `shared_buffers` (128 MB) plus per-connection memory means an unconstrained Postgres under real load could invite the OOM killer — so it ships with guardrails (see Implementation). The SQLite option would have cost nothing
 - **First real secret in the stack.** The DB password has to live somewhere the compose file and simulationAPI can both see it (env file on the box / GitHub secret) — a small but new class of thing the deploy pipeline hasn't handled yet
 - **Deviates from the one-Dockerfile-per-container pattern.** The upstream `postgres` image means no build step, so `deploy.yml`'s `containers/<name>/Dockerfile` auto-discovery doesn't apply — the pipeline needs to sync and `up` a compose-only container dir
-- **No host port cuts both ways.** Private by design, but ad-hoc inspection means `docker exec` into the container (or an SSH tunnel) rather than pointing a local client at a port — mitigated by the dev-only access toggle (Implementation step 11), which is itself the next tradeoff
+- **No host port cuts both ways.** Private by design, but ad-hoc inspection means `docker exec` into the container (or an SSH tunnel) rather than pointing a local client at a port — mitigated by the dev-only access toggle (ADR-005), which is itself the next tradeoff
 - **The dev access toggle is a deliberate hole in "never internet-reachable".** While enabled, the DB is one password away from the internet (scoped to the caller's CIDR). Contained by: no `0.0.0.0/0` wildcard, OIDC-scoped credentials, and a nightly auto-disable failsafe. Note the SG rule is created outside Terraform — a `terraform apply` while access is enabled may revert it, which conveniently fails closed, not open
 
 ### ORM (Drizzle)
@@ -67,6 +67,8 @@ Two choices to make: the database itself, and the ORM that simulationAPI uses to
 
 Versions pinned as of 2026-07-03: `postgres:18-alpine` (18.4), `drizzle-orm` 0.45.2, `drizzle-kit` 0.31.10, `drizzle-zod` 0.8.3.
 
+Landing plan (decided 2026-07-03): split PRs — (1) infra: docker network, swapfile, backup cron, S3 bucket + IAM; (2) simulationDB container + deploy.yml tweaks; (3) Drizzle, migrations, and the first CRUD resource in simulationAPI; (4) the dev access toggle, per ADR-005, after the core lands. Once merged, the box is deliberately rebuilt (`terraform apply -replace=aws_instance.app`) to bake the `user_data` changes — and to prove the rebuild story while there is still no data to lose.
+
 1. **Shared docker network** — create `simulation-net` idempotently in `infra/user_data.sh.tftpl` (so it survives a box rebuild) and as a pre-step in deploy.yml (`docker network create simulation-net || true`, covers the already-running box); both simulationAPI's and simulationDB's compose files declare it `external`
 2. **`containers/simulationDB/docker-compose.yml`** — compose file only, no Dockerfile (upstream image): digest-pinned `postgres:18-alpine`, `restart: unless-stopped`, **no `ports:` key at all** (docker network only), credentials via `env_file: .env`. **PG 18 image gotcha:** the volume mount point moved from `/var/lib/postgresql/data` to `/var/lib/postgresql` (PGDATA is now version-specific: `/var/lib/postgresql/18/docker`) — mount the named volume as `simulationdb-data:/var/lib/postgresql`; the old path silently leaves data outside the volume
 3. **Memory guardrails in the same compose file** (from the 2026-07-03 box check: 916 MiB total, ~471 MiB available, no swap): `mem_limit: 256m` and `command: -c shared_buffers=64MB`, plus a `healthcheck` using `pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB` (ships in the image)
@@ -74,14 +76,10 @@ Versions pinned as of 2026-07-03: `postgres:18-alpine` (18.4), `drizzle-orm` 0.4
 5. **deploy.yml: compose-only container** — the build/GHCR steps key off `containers/<name>/Dockerfile`; make sure the sync + `up -d` path also covers a directory with only a compose file (small tweak if discovery is Dockerfile-keyed)
 6. **Drizzle in simulationAPI** — add `drizzle-orm` (0.45.x), `drizzle-zod` (0.8.x), and `pg` as runtime deps (the derived zod schemas validate live requests); `drizzle-kit` (0.31.x) as a dev dep. Table definitions in `src/db/schema.ts`, `drizzle.config.ts` at the package root, generated SQL migrations committed under `drizzle/`
 7. **Migrations at API startup** — call `migrate(db, { migrationsFolder })` from `drizzle-orm/node-postgres/migrator` before `listen()`. Two consequences: the runtime Docker stage must copy `drizzle/` alongside `dist`, and since the API and DB live in separate compose projects (`depends_on` can't reach across), the API needs a bounded connect-retry loop at boot rather than assuming the DB is up
-8. **CRUD routes** — zod route schemas derived from the table definitions via `createSelectSchema`/`createInsertSchema`, plugged into the existing `fastify-type-provider-zod` setup from ADR-002
+8. **CRUD routes** — first resource: **simulation results**, with the table design derived from what the simulationPY/simulationTS batch jobs actually produce. Zod route schemas derived from the table definitions via `createSelectSchema`/`createInsertSchema`, plugged into the existing `fastify-type-provider-zod` setup from ADR-002
 9. **Backups, weekly** — Terraform: private S3 bucket with a lifecycle rule (expire dumps after ~30 days) and `s3:PutObject` added to the existing instance role; weekly cron entry in `user_data.sh.tftpl`: `docker exec simulationdb pg_dump -U $POSTGRES_USER $POSTGRES_DB | gzip | aws s3 cp - s3://<bucket>/simulationdb/$(date +%F).sql.gz`. Cost note: at this data size S3 is effectively free (<$0.01/mo) — the cadence is a data-loss-window choice, not a cost one; tightening to nightly later is a one-line cron change. Restore path (`aws s3 cp` + `gunzip | psql`) must be proven before real data lands — spun out to ADR-004 (draft)
 10. **Swapfile safety net** — add a 512 MiB swapfile to `user_data.sh.tftpl`; takes effect at the next box rebuild (as does the backup cron — until then, apply both by hand or rebuild deliberately)
-11. **Dev-only public access toggle** — a manual GitHub workflow (`workflow_dispatch`, e.g. `.github/workflows/db-access.yml`) with an `enable`/`disable` input and a **required** CIDR input (the developer's IP — no `0.0.0.0/0` default). Never part of any prod flow.
-    - *enable:* `aws ec2 authorize-security-group-ingress` for 5432 from the given CIDR, then over SSH drop a `docker-compose.override.yml` (`ports: "5432:5432"`) next to simulationDB's compose file and `up -d`. While enabled, developers connect via **`db.makejohnacoffee.com:5432`** (existing DNS record pointing at the EC2 IP — plain DNS, no nginx involvement since Postgres isn't HTTP)
-    - *disable:* remove the override, `up -d` (container recreated with no host port), revoke the SG rule
-    - AWS credentials for the SG calls come via GitHub OIDC assuming a role scoped to just these two SG actions — no long-lived AWS keys in secrets
-    - Password auth still applies while exposed (the official image's `pg_hba.conf` requires `scram-sha-256` for remote hosts), and a scheduled nightly `disable` run acts as a forgot-to-close failsafe
+11. **Dev-only public access toggle** — spun out to **ADR-005** (draft): a manual `workflow_dispatch` workflow toggling an SG rule (caller CIDR) plus a compose port override, connecting via `db.makejohnacoffee.com:5432`, with OIDC-scoped credentials and a nightly auto-disable. Implemented after this ADR's core lands
 12. **Verify on the box** — `docker stats` for the memory picture with Postgres running; exercise a CRUD route over HTTPS end to end; `docker compose down && up -d` on simulationDB to confirm the volume persists data; run one backup manually and restore it somewhere disposable
 
 ## Architecture Diagram
@@ -108,7 +106,7 @@ graph TD
     end
     S3["S3 bucket<br/>weekly pg_dump · 30-day expiry"]
     DB -. "cron: pg_dump, gzip, s3 cp" .-> S3
-    Dev -. "dev-only toggle (workflow_dispatch):<br/>SG rule for caller CIDR + :5432 override<br/>nightly auto-disable" .-> DB
+    Dev -. "dev-only toggle (ADR-005):<br/>SG rule for caller CIDR + :5432 override<br/>nightly auto-disable" .-> DB
     CI["GitHub Actions deploy.yml<br/>build → GHCR → compose up<br/>writes .env from SIMULATIONDB_PASSWORD"] --> Docker
 
     style DB fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
