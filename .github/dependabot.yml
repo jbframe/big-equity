@@ -1,3 +1,6 @@
+# Dependabot has no manual-only mode (a schedule is required), so every
+# ecosystem is set to the least-frequent interval (yearly). To run a job on
+# demand: Insights -> Dependency graph -> Dependabot -> "Check for updates".
 version: 2
 updates:
   # Keep GitHub Actions pinned-by-SHA but never stale: Dependabot opens PRs
@@ -6,9 +9,9 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: yearly
     groups:
-      # One PR per week for routine action bumps instead of one per action.
+      # One PR per run for routine action bumps instead of one per action.
       actions:
         patterns: ["*"]
 
@@ -16,34 +19,34 @@ updates:
   - package-ecosystem: pip
     directory: /containers/simulationPY
     schedule:
-      interval: weekly
+      interval: yearly
 
   # Base image for the simulationPY container (python:3.12-slim in Dockerfile).
   - package-ecosystem: docker
     directory: /containers/simulationPY
     schedule:
-      interval: weekly
+      interval: yearly
 
   # npm dependencies for the simulationTS container (package.json / lockfile).
   - package-ecosystem: npm
     directory: /containers/simulationTS
     schedule:
-      interval: weekly
+      interval: yearly
 
   # Base image for the simulationTS container (node:24-alpine in Dockerfile).
   - package-ecosystem: docker
     directory: /containers/simulationTS
     schedule:
-      interval: weekly
+      interval: yearly
 
   # npm dependencies for the simulationWeb FE container (package.json / lockfile).
   - package-ecosystem: npm
     directory: /containers/simulationWeb
     schedule:
-      interval: weekly
+      interval: yearly
 
   # Base images for the simulationWeb container (node + nginx in Dockerfile).
   - package-ecosystem: docker
     directory: /containers/simulationWeb
     schedule:
-      interval: weekly
+      interval: yearly
