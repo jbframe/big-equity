@@ -54,11 +54,14 @@ resource "aws_instance" "app" {
   instance_type          = var.instance_type
   key_name               = aws_key_pair.deploy.key_name
   vpc_security_group_ids = [aws_security_group.app.id]
+  # Lets the box write pg_dump backups to S3 (ADR-003) — see db_backups.tf.
+  iam_instance_profile = aws_iam_instance_profile.app.name
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     app_domain    = var.app_domain
     api_domain    = var.api_domain
     certbot_email = var.certbot_email
+    backup_bucket = aws_s3_bucket.db_backups.bucket
   })
 
   # user_data only runs at first boot; an in-place update would leave the box
