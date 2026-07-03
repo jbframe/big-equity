@@ -3,8 +3,8 @@
 # disk, network, and healthcheck status. Read-only; safe to run any time.
 #
 # Usage:
-#   scripts/monitor.sh            # one-shot snapshot
-#   scripts/monitor.sh --live     # live view, net/disk as per-second rates (ctrl-c to exit)
+#   scripts/monitor.sh            # live view, net/disk as per-second rates (ctrl-c to exit)
+#   scripts/monitor.sh --snap     # one-shot snapshot
 #
 # Host resolution: $EC2_HOST if set, otherwise `terraform output` from infra/.
 set -euo pipefail
@@ -20,7 +20,13 @@ fi
 
 SSH=(ssh -i "$SSH_KEY" -o ConnectTimeout=8 "ec2-user@$HOST")
 
-if [[ "${1:-}" == "--live" ]]; then
+case "${1:-}" in
+  "" | --live) LIVE=1 ;;
+  --snap)      LIVE=0 ;;
+  *) echo "usage: $0 [--snap]   (default: live view)" >&2; exit 2 ;;
+esac
+
+if [[ "$LIVE" == 1 ]]; then
   # Refresh loop instead of plain `docker stats`: keeps a header on screen,
   # adds a NODE row, and shows NET/DISK as per-second rates instead of the
   # cumulative-since-start odometers docker reports. Rates come from diffing
