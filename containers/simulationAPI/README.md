@@ -50,6 +50,11 @@ edit it, run `npx drizzle-kit generate`, and commit the SQL it emits under
 `drizzle/` — the next deploy applies it at startup. Migrations are plain SQL:
 reviewable in the PR, fixable by hand.
 
+To poke at the production DB from your machine, `npm run db:enable` opens the
+dev-only 5432 toggle for your current IP via the `db-access` workflow
+([ADR-005](../../docs/adr/005-simulationdb-dev-access-toggle.md));
+`npm run db:disable` closes it again.
+
 ## Routes
 
 | Route                 | Response           | Purpose                                        |
