@@ -1,5 +1,7 @@
 # ADR-002: Fastify backend container (simulationAPI)
 
+Date: 2026-07-02
+
 ## Requirements
 - Add a long-running HTTP API backend container alongside the existing containers
 - TypeScript end to end, consistent with the tech stack defaults (`docs/steering/tech-stack.md`)
@@ -33,7 +35,7 @@ Request/response validation uses **zod** via `fastify-type-provider-zod`: route 
 - Fastify runtime deps mean the runtime stage needs production `node_modules`, unlike simulationTS's dependency-free dist (`npm ci --omit=dev` in the runtime stage keeps it lean)
 - No framework-imposed structure like NestJS's — fine at this size; revisit if the API grows past a handful of routes or contributors
 - Public from day one means the CRUD surface is internet-reachable before any real consumers exist — auth/rate-limiting must land in the API before mutating routes do, since nginx only handles TLS
-- The API's nginx server block is applied by hand on the box for now, not through Terraform — it would not survive a box rebuild (see step 7). Accepted temporarily; the multi-vhost IaC story lands with the DB container ADR
+- ~~The API's nginx server block is applied by hand on the box for now, not through Terraform — it would not survive a box rebuild (see step 7). Accepted temporarily; the multi-vhost IaC story lands with the DB container ADR~~ *Resolved 2026-07-03: `user_data.sh.tftpl` now takes an `api_domain` variable and provisions the API vhost, its own Let's Encrypt cert, and per-IP nginx rate limiting at first boot — the box is recreated to pick it up*
 
 ## Implementation
 1. Scaffold `containers/simulationAPI`: `package.json` (`"type": "module"`), `tsconfig.json`, `src/` mirroring simulationTS conventions
@@ -42,7 +44,7 @@ Request/response validation uses **zod** via `fastify-type-provider-zod`: route 
 4. Multi-stage Dockerfile from digest-pinned `node:24-alpine`: build stage compiles TypeScript; runtime stage copies `package.json` **and** `package-lock.json` (unlike simulationTS's runtime stage, which skips the lockfile — `npm ci` needs it), runs `npm ci --omit=dev`, then adds `dist`
 5. `docker-compose.yml` with `restart: unless-stopped` (long-running service, unlike the batch jobs), `ports: "127.0.0.1:3003:3003"`, and a `healthcheck` hitting `GET /health` — so the box reports liveness even before the nginx server block (step 7) is in place. The check must use a tool that exists in the image: `node:24-alpine` ships busybox `wget` but no `curl`, so use `wget -qO- http://localhost:3003/health` (or a node one-liner)
 6. Merge to main; deploy.yml builds, pushes to GHCR, syncs the compose file, and runs `up -d` on the box
-7. Expose on 443 per ADR-001: point an API subdomain (e.g. `api.makejohnacoffee.com`) at the EC2 IP, add an nginx server block proxying to `localhost:3003`, and issue its Let's Encrypt cert — no security-group changes (80/443 already open). **Known gap:** the existing simulationWeb vhost is provisioned by Terraform via `infra/user_data.sh.tftpl` (templated on a single `app_domain`), and user_data only runs at first boot — so this new server block will initially be applied by hand on the box and would be lost on a rebuild. Deferred deliberately: the IaC story for multiple vhosts (parameterizing the template, and how changes land on a running box) will be addressed alongside the DB container ADR, which brings more rebuild complexity anyway
+7. Expose on 443 per ADR-001: point an API subdomain (e.g. `api.makejohnacoffee.com`) at the EC2 IP, add an nginx server block proxying to `localhost:3003`, and issue its Let's Encrypt cert — no security-group changes (80/443 already open). **Known gap:** the existing simulationWeb vhost is provisioned by Terraform via `infra/user_data.sh.tftpl` (templated on a single `app_domain`), and user_data only runs at first boot — so this new server block will initially be applied by hand on the box and would be lost on a rebuild. ~~Deferred deliberately: the IaC story for multiple vhosts (parameterizing the template, and how changes land on a running box) will be addressed alongside the DB container ADR, which brings more rebuild complexity anyway~~ *Update 2026-07-03: done in Terraform instead of by hand — the template now takes `api_domain`, writes the API vhost, issues a separate cert per subdomain, and adds per-IP rate limiting (web 30 r/s, API 10 r/s, 429 on excess); applied by recreating the EC2 instance (`terraform apply -replace=aws_instance.app`)*
 8. Later, when the DB container lands: shared docker network between simulationAPI and the DB, CRUD routes in the API, no host ports on the DB
 
 ## Architecture Diagram

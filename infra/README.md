@@ -206,10 +206,11 @@ Then record the instance IP as the deploy target:
 gh secret set EC2_HOST --body "$(terraform -chdir=infra output -raw public_ip)"
 ```
 
-Also point the **DNS A record** for `app_domain` (default
-`allin.makejohnacoffee.com`) at that same Elastic IP — certbot can't issue the
-TLS certificate until DNS resolves to the box (the bootstrap retries for up to
-20 minutes, so setting DNS just after the apply is fine).
+Also point the **DNS A records** for `app_domain` (default
+`allin.makejohnacoffee.com`) and `api_domain` (default
+`api.makejohnacoffee.com`) at that same Elastic IP — certbot can't issue the
+TLS certificates until DNS resolves to the box (the bootstrap retries each
+domain for up to 20 minutes, so setting DNS just after the apply is fine).
 
 ### 6. (Optional) give a container its `.env`
 
@@ -273,7 +274,7 @@ What survives a rebuild and what doesn't:
 | Thing | After rebuild |
 |---|---|
 | Elastic IP / `EC2_HOST` / DNS | ✅ unchanged — the EIP re-attaches to the new instance |
-| TLS certificate | 🔁 reissued automatically at boot. Let's Encrypt allows **5 duplicate certs per week** — don't rebuild in a tight loop |
+| TLS certificates (one per subdomain) | 🔁 reissued automatically at boot. Let's Encrypt allows **5 duplicate certs per week** — don't rebuild in a tight loop |
 | Containers & images | 🔁 redeploy them (step 3 below) |
 | Container `.env` files | ❌ gone — re-seed them ([step 6](#6-optional-give-a-container-its-env)) |
 | SSH host key | ❌ new — your next SSH will warn; run `ssh-keygen -R <EC2_HOST IP>`. CI deploys are unaffected (they don't pin host keys) |
@@ -286,7 +287,8 @@ After the apply finishes:
 2. Re-seed any container `.env` files ([step 6](#6-optional-give-a-container-its-env)).
 3. Redeploy all containers: `gh workflow run deploy.yml`.
 4. Verify: `curl -I https://allin.makejohnacoffee.com` returns `200` (and
-   `curl -I http://…` returns a `301` to https).
+   `curl -I http://…` returns a `301` to https), and
+   `curl https://api.makejohnacoffee.com/health` returns `{"status":"ok"}`.
 
 ---
 
@@ -315,17 +317,28 @@ is key-only, no password auth; set `ssh_open = false` to lock it to `MY_IP_CIDR`
 The deploy public key is read from the committed `infra/ec2_deploy_key.pub`, so
 the terraform pipeline can provision without access to your `~/.ssh`.
 
-**HTTPS via nginx + Let's Encrypt** ([ADR-001](../docs/adr/001-expose-simulationweb.md)).
+**HTTPS via nginx + Let's Encrypt** ([ADR-001](../docs/adr/001-expose-simulationweb.md),
+[ADR-002](../docs/adr/002-fastify-backend-container.md)).
 Ports 80/443 are open by default (`open_web = true`; set it `false` for
-non-web batch workloads). First boot installs nginx and certbot, writes a vhost
-for `app_domain` (default `allin.makejohnacoffee.com`) that proxies to
-simulationWeb on `127.0.0.1:8080`, then runs `certbot --nginx`, which obtains a
-certificate and rewrites the vhost to terminate TLS on 443 and 301-redirect 80
-→ 443. Issuance retries every 30 s (up to 20 min) because the Elastic IP — where
-DNS points — attaches shortly *after* first boot. The certbot systemd timer
-renews twice daily and a deploy hook reloads nginx. Routing is hostname-based,
-so exposing a future container is one more `server` block on its own subdomain;
-the other containers stay loopback-only and unreachable from the internet.
+non-web batch workloads). First boot installs nginx and certbot and writes two
+vhosts: `app_domain` (default `allin.makejohnacoffee.com`) proxying to
+simulationWeb on `127.0.0.1:8080`, and `api_domain` (default
+`api.makejohnacoffee.com`) proxying to simulationAPI on `127.0.0.1:3003`. It
+then runs `certbot --nginx` per domain, which obtains a certificate for each
+and rewrites its vhost to terminate TLS on 443 and 301-redirect 80 → 443.
+Issuance retries every 30 s (up to 20 min per domain) because the Elastic IP —
+where DNS points — attaches shortly *after* first boot. The certbot systemd
+timer renews twice daily and a deploy hook reloads nginx. Routing is
+hostname-based, so exposing a future container is one more `server` block on
+its own subdomain; the other containers stay loopback-only and unreachable
+from the internet.
+
+**Rate limiting at the proxy.** Nginx enforces per-client-IP request limits
+before anything reaches a container: 30 r/s (burst 60) on the web vhost,
+10 r/s (burst 20) on the API vhost, defined in
+`/etc/nginx/conf.d/00-ratelimit.conf`. Requests over the burst get **429 Too
+Many Requests**. This is flood protection, not auth — per ADR-002,
+authentication and per-user limits live in the API itself.
 
 `user_data.sh.tftpl` also enables a **post-quantum SSH key exchange**
 (`sntrup761x25519-sha512@openssh.com`), which AL2023's OpenSSH supports but
