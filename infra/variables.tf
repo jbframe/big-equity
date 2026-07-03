@@ -5,9 +5,9 @@ variable "region" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. t3.micro is free-tier-eligible; bump to t3.small if Docker feels tight."
+  description = "EC2 instance type. t3.small (2 GiB) gives the FusionAuth JVM (ADR-006) room alongside Postgres; t3.micro (free-tier, 1 GiB) is too tight once FusionAuth joins the box."
   type        = string
-  default     = "t3.micro"
+  default     = "t3.small"
 }
 
 variable "my_ip_cidr" {
@@ -38,6 +38,12 @@ variable "api_domain" {
   description = "Hostname nginx serves simulationAPI on (ADR-002). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
   type        = string
   default     = "api.makejohnacoffee.com"
+}
+
+variable "auth_domain" {
+  description = "Hostname nginx serves FusionAuth on (ADR-006). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  type        = string
+  default     = "id.makejohnacoffee.com"
 }
 
 variable "certbot_email" {

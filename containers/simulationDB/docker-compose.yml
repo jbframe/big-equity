@@ -13,9 +13,9 @@ services:
     # simulation-net, with simulationAPI as the sole client (ADR-003).
     # Temporary dev access is ADR-005's toggle, not a standing port.
     env_file: .env
-    # Memory guardrails for the 916 MiB box: cap the container and shrink
-    # shared_buffers from the 128MB default; the swapfile (infra) is the
-    # second layer of defense.
+    # Memory guardrails for the shared box (2 GiB t3.small, also home to the
+    # FusionAuth JVM per ADR-006): cap the container and shrink shared_buffers
+    # from the 128MB default; the swapfile (infra) is the second layer of defense.
     command: -c shared_buffers=64MB
     mem_limit: 256m
     volumes:

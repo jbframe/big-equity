@@ -183,6 +183,8 @@ gh variable set MY_IP_CIDR   --body "$(curl -s -4 ifconfig.me)/32"
 ```bash
 gh secret set EC2_SSH_KEY < ~/.ssh/ec2_deploy_key   # the PRIVATE key
 gh secret set GHCR_PAT    --body "<a read:packages PAT>"
+gh secret set SIMULATIONDB_PASSWORD   --body "<url-safe db password>"  # simulationDB (ADR-003)
+gh secret set FUSIONAUTH_DB_PASSWORD  --body "<fusionauth db password>" # FusionAuth runtime role (ADR-006)
 # EC2_HOST is set after the box exists — see next step.
 ```
 
@@ -217,10 +219,11 @@ gh variable set DB_SG_ID           --body "$(terraform -chdir=infra output -raw 
 ```
 
 Also point the **DNS A records** for `app_domain` (default
-`allin.makejohnacoffee.com`) and `api_domain` (default
-`api.makejohnacoffee.com`) at that same Elastic IP — certbot can't issue the
-TLS certificates until DNS resolves to the box (the bootstrap retries each
-domain for up to 20 minutes, so setting DNS just after the apply is fine).
+`allin.makejohnacoffee.com`), `api_domain` (default `api.makejohnacoffee.com`),
+and `auth_domain` (default `id.makejohnacoffee.com`, FusionAuth per ADR-006) at
+that same Elastic IP — certbot can't issue the TLS certificates until DNS
+resolves to the box (the bootstrap retries each domain for up to 20 minutes, so
+setting DNS just after the apply is fine).
 
 ### 6. (Optional) give a container its `.env`
 
@@ -232,8 +235,9 @@ that needs no config.
 The one thing the pipeline can't supply is **real secrets**: `.env` is
 intentionally not in the repo. Two exceptions manage themselves: the pipeline
 *writes* `simulationDB`'s and `simulationAPI`'s `.env` on every deploy from
-the `SIMULATIONDB_PASSWORD` GitHub secret (ADR-003) — nothing to seed, and
-rotation is "update the secret + redeploy". For any other container that
+the `SIMULATIONDB_PASSWORD` GitHub secret (ADR-003), and `fusionAuth`'s from
+`SIMULATIONDB_PASSWORD` + `FUSIONAUTH_DB_PASSWORD` (ADR-006) — nothing to seed,
+and rotation is "update the secret + redeploy". For any other container that
 needs environment values, place its `.env` on the box once:
 
 ```bash
@@ -301,8 +305,10 @@ After the apply finishes:
 2. Re-seed any container `.env` files ([step 6](#6-optional-give-a-container-its-env)).
 3. Redeploy all containers: `gh workflow run deploy.yml`.
 4. Verify: `curl -I https://allin.makejohnacoffee.com` returns `200` (and
-   `curl -I http://…` returns a `301` to https), and
-   `curl https://api.makejohnacoffee.com/health` returns `{"status":"ok"}`.
+   `curl -I http://…` returns a `301` to https),
+   `curl https://api.makejohnacoffee.com/health` returns `{"status":"ok"}`, and
+   `curl https://id.makejohnacoffee.com/api/status` returns FusionAuth's status
+   JSON (ADR-006).
 
 ---
 
@@ -337,7 +343,9 @@ Ports 80/443 are open by default (`open_web = true`; set it `false` for
 non-web batch workloads). First boot installs nginx and certbot and writes two
 vhosts: `app_domain` (default `allin.makejohnacoffee.com`) proxying to
 simulationWeb on `127.0.0.1:8080`, and `api_domain` (default
-`api.makejohnacoffee.com`) proxying to simulationAPI on `127.0.0.1:3003`. It
+`api.makejohnacoffee.com`) proxying to simulationAPI on `127.0.0.1:3003` — plus
+`auth_domain` (default `id.makejohnacoffee.com`, ADR-006) proxying to FusionAuth
+on `127.0.0.1:9011`. It
 then runs `certbot --nginx` per domain, which obtains a certificate for each
 and rewrites its vhost to terminate TLS on 443 and 301-redirect 80 → 443.
 Issuance retries every 30 s (up to 20 min per domain) because the Elastic IP —
@@ -349,16 +357,17 @@ from the internet.
 
 **Rate limiting at the proxy.** Nginx enforces per-client-IP request limits
 before anything reaches a container: 30 r/s (burst 60) on the web vhost,
-10 r/s (burst 20) on the API vhost, defined in
-`/etc/nginx/conf.d/00-ratelimit.conf`. Requests over the burst get **429 Too
+10 r/s (burst 20) on the API vhost, and 30 r/s (burst 60) on the FusionAuth
+vhost, defined in `/etc/nginx/conf.d/00-ratelimit.conf`. Requests over the burst get **429 Too
 Many Requests**. This is flood protection, not auth — per ADR-002,
 authentication and per-user limits live in the API itself.
 
 **simulationDB groundwork** ([ADR-003](../docs/adr/003-simulationdb-container.md)).
 First boot also creates the `simulation-net` docker network (the private path
 between simulationAPI and simulationDB — no host ports on the DB), adds a
-512 MiB swapfile so a Postgres memory spike can't summon the OOM killer on the
-916 MiB box, and installs a weekly cron (`/usr/local/bin/simulationdb-backup.sh`,
+1 GiB swapfile (512 MiB before FusionAuth, ADR-006) so a Postgres or JVM memory
+spike can't summon the OOM killer on the 2 GiB t3.small box, and installs a
+weekly cron (`/usr/local/bin/simulationdb-backup.sh`,
 Sundays 03:10 UTC) that pipes `pg_dump` gzipped into the private
 `db_backups.tf` bucket, where dumps expire after 30 days. The instance role
 grants write-only access to the backup prefix, so a compromised box can't read
@@ -388,10 +397,11 @@ the deploy session.
 
 ## Cost & teardown
 
-- `t3.micro` + 20 GB gp3 + 1 Elastic IP is roughly free-tier eligible for the
-  first year; after that, on the order of a few dollars a month. **An Elastic IP
-  attached to a running instance is free; a *detached* one is billed** — so if
-  you stop the instance for a while, release the EIP.
+- `t3.small` + 20 GB gp3 + 1 Elastic IP runs on the order of ~$15–20/mo (the
+  t3.small bump for FusionAuth's JVM, ADR-006, takes it past the `t3.micro`
+  free-tier). **An Elastic IP attached to a running instance is free; a
+  *detached* one is billed** — so if you stop the instance for a while, release
+  the EIP.
 - The Terraform **state bucket costs pennies** (single-digit MB of state +
   versions; effectively $0 in the free-tier year).
 - Tear everything down with:

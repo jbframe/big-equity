@@ -17,11 +17,12 @@ curl -SL https://github.com/docker/compose/releases/latest/download/docker-compo
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-# --- 512 MiB swapfile (ADR-003) ---
-# 916 MiB of RAM and no swap by default; with Postgres joining the box, a
-# memory spike would otherwise go straight to the OOM killer. Second layer of
-# defense alongside simulationDB's compose-level mem_limit.
-dd if=/dev/zero of=/swapfile bs=1M count=512
+# --- 1 GiB swapfile (ADR-003, resized in ADR-006) ---
+# The t3.small box has 2 GiB and no swap by default. With Postgres and now the
+# FusionAuth JVM (ADR-006) on the box, a memory spike would otherwise go
+# straight to the OOM killer. Second layer of defense alongside the containers'
+# compose-level mem_limits; bumped 512 MiB -> 1 GiB when FusionAuth joined.
+dd if=/dev/zero of=/swapfile bs=1M count=1024
 chmod 600 /swapfile
 mkswap /swapfile
 swapon /swapfile
@@ -91,6 +92,7 @@ dnf install -y nginx certbot python3-certbot-nginx
 cat >/etc/nginx/conf.d/00-ratelimit.conf <<'EOF'
 limit_req_zone $binary_remote_addr zone=web_perip:10m rate=30r/s;
 limit_req_zone $binary_remote_addr zone=api_perip:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=auth_perip:10m rate=30r/s;
 limit_req_status 429;
 EOF
 
@@ -127,6 +129,27 @@ server {
     }
 }
 EOF
+
+# FusionAuth (ADR-006): loopback container on :9011, exposed on its own
+# subdomain. client_max_body_size is bumped from nginx's 1m default so admin
+# uploads (themes, config imports) aren't truncated.
+cat >/etc/nginx/conf.d/${auth_domain}.conf <<'EOF'
+server {
+    listen 80;
+    server_name ${auth_domain};
+
+    client_max_body_size 64m;
+
+    location / {
+        limit_req zone=auth_perip burst=60 nodelay;
+        proxy_pass http://127.0.0.1:9011;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
 nginx -t
 systemctl enable --now nginx
 
@@ -142,7 +165,7 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
 # At first boot the Elastic IP (where DNS points) may not be attached yet, so
 # the HTTP-01 challenge can land on the wrong box — retry until the EIP is on
 # (usually the first or second attempt succeeds).
-for domain in "${app_domain}" "${api_domain}"; do
+for domain in "${app_domain}" "${api_domain}" "${auth_domain}"; do
   for attempt in $(seq 1 40); do
     if certbot --nginx -d "$domain" --non-interactive --agree-tos \
          -m "${certbot_email}" --redirect; then

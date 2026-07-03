@@ -87,11 +87,12 @@ jobs:
           CONTAINER: ${{ matrix.container.name }}
           BUILD: ${{ matrix.container.build }}
           SIMULATIONDB_PASSWORD: ${{ secrets.SIMULATIONDB_PASSWORD }}
+          FUSIONAUTH_DB_PASSWORD: ${{ secrets.FUSIONAUTH_DB_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD
+          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD,FUSIONAUTH_DB_PASSWORD
           script: |
             set -e
             # Private path between simulationAPI and simulationDB (ADR-003).
@@ -120,6 +121,28 @@ jobs:
             if [ "$CONTAINER" = "simulationAPI" ]; then
               cat > .env <<EOF
             DATABASE_URL=postgresql://simulation:$SIMULATIONDB_PASSWORD@simulationdb:5432/simulation
+            EOF
+            fi
+
+            # FusionAuth (ADR-006): reuses simulationDB, no bundled Postgres.
+            # ROOT_* are the simulationDB superuser (creates the fusionauth db +
+            # role on first boot in silent mode); USERNAME/PASSWORD are its own
+            # runtime role. SEARCH_TYPE=database keeps OpenSearch off.
+            if [ "$CONTAINER" = "fusionAuth" ]; then
+              if [ -z "$SIMULATIONDB_PASSWORD" ] || [ -z "$FUSIONAUTH_DB_PASSWORD" ]; then
+                echo "SIMULATIONDB_PASSWORD and FUSIONAUTH_DB_PASSWORD secrets must be set" >&2
+                exit 1
+              fi
+              cat > .env <<EOF
+            DATABASE_URL=jdbc:postgresql://simulationdb:5432/fusionauth
+            DATABASE_ROOT_USERNAME=simulation
+            DATABASE_ROOT_PASSWORD=$SIMULATIONDB_PASSWORD
+            DATABASE_USERNAME=fusionauth
+            DATABASE_PASSWORD=$FUSIONAUTH_DB_PASSWORD
+            SEARCH_TYPE=database
+            FUSIONAUTH_APP_MEMORY=512M
+            FUSIONAUTH_APP_RUNTIME_MODE=production
+            FUSIONAUTH_APP_URL=http://localhost:9011
             EOF
             fi
 
