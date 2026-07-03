@@ -85,7 +85,7 @@ on swap in steady state.
   (accounts, credentials); if real users land, tighten the cadence — a one-line
   cron change per ADR-003.
 - **Two DB passwords now.** `SIMULATIONDB_PASSWORD` (also used as FusionAuth's DB
-  root creds) and a new `FUSIONAUTH_DB_PASSWORD` for its runtime role.
+  root creds) and a new `FUSIONAUTHDB_PASSWORD` for its runtime role.
 - **Database search has a ceiling.** Fine here; a very large user base would
   eventually want OpenSearch back — at which point the box needs to grow first.
 - **Deviates from the tech-stack auth default** (Better Auth) — a conscious
@@ -98,7 +98,7 @@ on swap in steady state.
    healthcheck on `/api/status`. No Dockerfile.
 2. **Secrets / .env** — `deploy.yml` writes `containers/fusionAuth/.env` on every
    deploy from `SIMULATIONDB_PASSWORD` (as `DATABASE_ROOT_*`) and a new
-   `FUSIONAUTH_DB_PASSWORD` (as `DATABASE_PASSWORD`), plus `SEARCH_TYPE=database`,
+   `FUSIONAUTHDB_PASSWORD` (as `DATABASE_PASSWORD`), plus `SEARCH_TYPE=database`,
    `FUSIONAUTH_APP_MEMORY=512M`, `FUSIONAUTH_APP_RUNTIME_MODE=production`,
    `FUSIONAUTH_APP_URL=http://localhost:9011` (internal self-URL; the public URL
    is derived from proxied `Host` + `X-Forwarded-Proto`).
@@ -118,4 +118,4 @@ on swap in steady state.
 7. **Box rebuild** — the `user_data` changes force an instance replacement
    (`user_data_replace_on_change = true`). Add the
    `id.makejohnacoffee.com` DNS A record → Elastic IP and set the
-   `FUSIONAUTH_DB_PASSWORD` GitHub secret before rebuilding, then redeploy.
+   `FUSIONAUTHDB_PASSWORD` GitHub secret before rebuilding, then redeploy.
