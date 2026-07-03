@@ -25,6 +25,7 @@ images with a GHCR token — both stored as GitHub secrets.
   - [5. Provision the box](#5-provision-the-box)
   - [6. (Optional) give a container its .env](#6-optional-give-a-container-its-env)
 - [Day-to-day workflow](#day-to-day-workflow)
+- [Rebuilding the box](#rebuilding-the-box)
 - [How it works](#how-it-works)
 - [Cost & teardown](#cost--teardown)
 
@@ -85,7 +86,7 @@ infra/
 ├── backend.tf           # S3 remote state config
 ├── main.tf              # VPC lookup, security group, key pair, EC2, Elastic IP
 ├── ec2_deploy_key.pub   # committed deploy public key (Terraform reads it here)
-├── user_data.sh         # first boot: Docker + Compose, post-quantum SSH KEX
+├── user_data.sh.tftpl   # first boot: Docker + Compose, nginx + Let's Encrypt, post-quantum SSH KEX
 └── outputs.tf
 
 .github/workflows/
@@ -205,6 +206,11 @@ Then record the instance IP as the deploy target:
 gh secret set EC2_HOST --body "$(terraform -chdir=infra output -raw public_ip)"
 ```
 
+Also point the **DNS A record** for `app_domain` (default
+`allin.makejohnacoffee.com`) at that same Elastic IP — certbot can't issue the
+TLS certificate until DNS resolves to the box (the bootstrap retries for up to
+20 minutes, so setting DNS just after the apply is fine).
+
 ### 6. (Optional) give a container its `.env`
 
 The deploy pipeline **syncs each container's `docker-compose.yml` to the box on
@@ -240,6 +246,50 @@ or on the box: `cd ~/containers/<name> && IMAGE=ghcr.io/YOURUSER/big-equity/<nam
 
 ---
 
+## Rebuilding the box
+
+[`user_data.sh.tftpl`](user_data.sh.tftpl) runs **only on first boot** — editing
+it never changes a running instance. The instance is therefore configured with
+`user_data_replace_on_change = true`: any change to the bootstrap script makes
+the next `terraform apply` **destroy and recreate the instance**, which re-runs
+the script from scratch. That's the supported way to change anything on the box
+itself (installed packages, nginx config, certbot). Never hand-edit the box —
+change the template and rebuild, so the box always matches the repo.
+
+**Rebuild via CI** (the normal path): push the `infra/**` change to `main` (or
+merge the PR), review the plan — it should show `aws_instance.app` being
+*replaced* — and approve the apply.
+
+**Rebuild locally**, or force one with no config change (e.g. the box is in a
+bad state):
+
+```bash
+cd infra
+terraform apply -replace=aws_instance.app -var "my_ip_cidr=$(curl -s -4 ifconfig.me)/32"
+```
+
+What survives a rebuild and what doesn't:
+
+| Thing | After rebuild |
+|---|---|
+| Elastic IP / `EC2_HOST` / DNS | ✅ unchanged — the EIP re-attaches to the new instance |
+| TLS certificate | 🔁 reissued automatically at boot. Let's Encrypt allows **5 duplicate certs per week** — don't rebuild in a tight loop |
+| Containers & images | 🔁 redeploy them (step 3 below) |
+| Container `.env` files | ❌ gone — re-seed them ([step 6](#6-optional-give-a-container-its-env)) |
+| SSH host key | ❌ new — your next SSH will warn; run `ssh-keygen -R <EC2_HOST IP>`. CI deploys are unaffected (they don't pin host keys) |
+
+After the apply finishes:
+
+1. Give cloud-init a few minutes to finish the bootstrap (Docker, nginx,
+   certificate). Watch it with:
+   `ssh -i ~/.ssh/ec2_deploy_key ec2-user@<IP> sudo tail -f /var/log/cloud-init-output.log`
+2. Re-seed any container `.env` files ([step 6](#6-optional-give-a-container-its-env)).
+3. Redeploy all containers: `gh workflow run deploy.yml`.
+4. Verify: `curl -I https://allin.makejohnacoffee.com` returns `200` (and
+   `curl -I http://…` returns a `301` to https).
+
+---
+
 ## How it works
 
 **OIDC instead of stored AWS keys.** The terraform pipeline requests an OIDC
@@ -258,15 +308,26 @@ safety — no DynamoDB table needed on Terraform ≥ 1.10.
 box pulls using the `read:packages` PAT.
 
 **The box.** Amazon Linux 2023 (latest AMI resolved at apply time via SSM),
-Docker + Compose installed on first boot by [`user_data.sh`](user_data.sh),
+Docker + Compose installed on first boot by [`user_data.sh.tftpl`](user_data.sh.tftpl),
 fronted by an Elastic IP so `EC2_HOST` stays stable across reboots. SSH is open
 to `0.0.0.0/0` by default (`ssh_open = true`) so CI runners can deploy — the box
 is key-only, no password auth; set `ssh_open = false` to lock it to `MY_IP_CIDR`.
-Port 80 is closed unless you set `open_http = true`. The deploy public key is read
-from the committed `infra/ec2_deploy_key.pub`, so the terraform pipeline can
-provision without access to your `~/.ssh`.
+The deploy public key is read from the committed `infra/ec2_deploy_key.pub`, so
+the terraform pipeline can provision without access to your `~/.ssh`.
 
-`user_data.sh` also enables a **post-quantum SSH key exchange**
+**HTTPS via nginx + Let's Encrypt** ([ADR-001](../docs/adr/001-expose-simulationweb.md)).
+Ports 80/443 are open by default (`open_web = true`; set it `false` for
+non-web batch workloads). First boot installs nginx and certbot, writes a vhost
+for `app_domain` (default `allin.makejohnacoffee.com`) that proxies to
+simulationWeb on `127.0.0.1:8080`, then runs `certbot --nginx`, which obtains a
+certificate and rewrites the vhost to terminate TLS on 443 and 301-redirect 80
+→ 443. Issuance retries every 30 s (up to 20 min) because the Elastic IP — where
+DNS points — attaches shortly *after* first boot. The certbot systemd timer
+renews twice daily and a deploy hook reloads nginx. Routing is hostname-based,
+so exposing a future container is one more `server` block on its own subdomain;
+the other containers stay loopback-only and unreachable from the internet.
+
+`user_data.sh.tftpl` also enables a **post-quantum SSH key exchange**
 (`sntrup761x25519-sha512@openssh.com`), which AL2023's OpenSSH supports but
 doesn't prefer by default — guarding against store-now-decrypt-later capture of
 the deploy session.

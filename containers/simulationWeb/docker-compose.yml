@@ -7,6 +7,7 @@ services:
     # reboots and crashes.
     restart: unless-stopped
     ports:
-      # host:container — browse to http://<box>:8080. Make sure the EC2
-      # security group allows inbound 8080 (see infra/).
-      - "8080:80"
+      # Loopback-only: nginx on the host terminates TLS for
+      # https://allin.makejohnacoffee.com and proxies here (ADR-001).
+      # Port 8080 is never reachable from the internet directly.
+      - "127.0.0.1:8080:80"

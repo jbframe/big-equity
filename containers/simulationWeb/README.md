@@ -22,5 +22,7 @@ npm run typecheck
 Built as a static site served by nginx (see `Dockerfile`). The repo's deploy
 pipeline auto-discovers any `containers/<name>/` with a Dockerfile, so pushing
 to `main` ships it. Unlike the batch-job sims this is a long-running service:
-`docker-compose.yml` publishes port **8080** and uses `restart: unless-stopped`
-— open inbound 8080 on the EC2 security group (see `infra/`) to reach it.
+`docker-compose.yml` uses `restart: unless-stopped` and binds to
+**127.0.0.1:8080** on the box, where the host nginx reverse proxy serves it at
+**https://allin.makejohnacoffee.com** (TLS via Let's Encrypt — see `infra/`
+and [ADR-001](../../docs/adr/001-expose-simulationweb.md)).

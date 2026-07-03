@@ -51,7 +51,7 @@ graph TD
         Nginx["<b>Nginx Reverse Proxy</b><br/>hostname-based routing<br/>TLS termination"]
         Port443 --> Nginx
 
-        Certbot["certbot<br/>installed via user_data.sh"]
+        Certbot["certbot<br/>installed via user_data.sh.tftpl"]
         Certs[("/etc/letsencrypt/live/<br/>allin.makejohnacoffee.com/<br/>fullchain.pem · privkey.pem")]
         Timer["⏱ certbot renew<br/>systemd timer · 2×/day"]
 
