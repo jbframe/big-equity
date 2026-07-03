@@ -1,0 +1,46 @@
+# Lives on the EC2 box at ~/containers/fusionAuth/docker-compose.yml.
+# No Dockerfile here: this runs the upstream fusionauth-app image, version-
+# pinned (ADR-006), like simulationDB runs upstream postgres. The deploy
+# pipeline syncs this file, writes .env (DB creds + search/runtime config)
+# from GitHub secrets, and runs `up -d`.
+services:
+  app:
+    image: fusionauth/fusionauth-app:1.68.0
+    # Stable name for logs / `docker exec`, mirroring simulationdb.
+    container_name: fusionauth
+    restart: unless-stopped
+    # Loopback-only: nginx on the box terminates TLS for
+    # https://id.makejohnacoffee.com and proxies here (ADR-001 pattern,
+    # ADR-006). Port 9011 is never reachable from the internet directly.
+    ports:
+      - "127.0.0.1:9011:9011"
+    # DB creds, SEARCH_TYPE=database (OpenSearch off), and runtime config,
+    # written by the deploy pipeline from GitHub secrets (ADR-006).
+    env_file: .env
+    # Reuses the already-running simulationDB over the shared private network —
+    # no host port on the DB (ADR-003). FusionAuth creates its own `fusionauth`
+    # database and role on first boot in silent mode using the root creds in
+    # .env; simulationDB stays the sole Postgres on the box (ADR-006).
+    networks:
+      - simulation-net
+    # OpenSearch is off (SEARCH_TYPE=database in .env), so this JVM is the only
+    # heavy tenant. Heap is 512M (FUSIONAUTH_APP_MEMORY). The t3.micro box has
+    # 916 MiB total, so this cap is deliberately below heap+overhead: pages
+    # past it spill to the 1 GiB swapfile (infra) instead of letting the JVM
+    # starve Postgres (capped at 256m), nginx, and the host. If it thrashes,
+    # ADR-006 says bump the instance to t3.small before raising this.
+    mem_limit: 640m
+    # The fusionauth-app image ships curl; /api/status returns 200 once the app
+    # is up and the DB schema is migrated (first boot takes ~30s with database
+    # search, vs minutes with a search engine).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9011/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  # Created by user_data at first boot and idempotently by deploy.yml.
+  simulation-net:
+    external: true

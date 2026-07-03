@@ -20,6 +20,7 @@ Technology choices follow the defaults in
 | `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
 | `simulationAPI` | Fastify HTTP API backend (TypeScript, zod-validated routes); will be the CRUD layer in front of a future private DB container. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
 | `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; simulationAPI is its sole client. | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
+| `fusionAuth` | Self-hosted identity provider (upstream `fusionauth/fusionauth-app`, no Dockerfile). Reuses simulationDB (its own `fusionauth` database, no bundled Postgres); OpenSearch off (`SEARCH_TYPE=database`). | [containers/fusionAuth/README.md](containers/fusionAuth/README.md) |
 
 ### Public internet exposure
 
@@ -30,6 +31,7 @@ Technology choices follow the defaults in
 | `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
 | `simulationAPI` | Yes (provisioned at boot; live after the next box rebuild) | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
 | `simulationDB` | No | Docker network only ([ADR-003](docs/adr/003-simulationdb-container.md)); dev-only toggle per [ADR-005](docs/adr/005-simulationdb-dev-access-toggle.md) |
+| `fusionAuth` | Yes (provisioned at boot; live after the next box rebuild) | https://id.makejohnacoffee.com (per [ADR-006](docs/adr/006-fusionauth-container.md)) |
 
 How the exposure works (see [ADR-001](docs/adr/001-expose-simulationweb.md); the API follows the same pattern per [ADR-002](docs/adr/002-fastify-backend-container.md), plus per-IP rate limiting at the proxy):
 
@@ -40,12 +42,15 @@ graph TD
     direction TB
     Client["🌐 Browser<br/><b>https://allin.makejohnacoffee.com</b>"]
     APIClient["🌐 API client<br/><b>https://api.makejohnacoffee.com</b>"]
+    AuthClient["🌐 Login / OIDC<br/><b>https://id.makejohnacoffee.com</b>"]
     LE["🔐 Let's Encrypt CA<br/>ACME"]
 
     Client --> Port80
     Client -- "DNS → 35.169.127.234" --> Port443
     APIClient --> Port80
     APIClient -- "DNS → 35.169.127.234" --> Port443
+    AuthClient --> Port80
+    AuthClient -- "DNS → 35.169.127.234" --> Port443
 
     subgraph EC2["AWS EC2 Instance · t3.micro<br/>Amazon Linux 2023 (latest via SSM)"]
         direction TB
@@ -70,10 +75,12 @@ graph TD
             API["simulationAPI<br/>Fastify · node:24-alpine<br/>:3003 · 🌍 exposed via nginx :443"]
             PY["simulationPY<br/>python:3.14-alpine<br/>batch · no ports · 🔒 private"]
             TS["simulationTS<br/>node:24-alpine<br/>batch · no ports · 🔒 private"]
+            Auth["fusionAuth<br/>fusionauth-app · JVM<br/>:9011 · 🌍 exposed via nginx :443<br/>DB search · OpenSearch off"]
         end
 
         Nginx -- "allin subdomain · :443<br/>proxy_pass localhost:8080" --> Web
         Nginx -- "api subdomain · :443<br/>proxy_pass localhost:3003" --> API
+        Nginx -- "id subdomain · :443<br/>proxy_pass localhost:9011" --> Auth
     end
 
     Certbot -- "1. cert request (ACME)" --> LE
@@ -86,12 +93,14 @@ graph TD
     style BG fill:#000000,stroke:#000000
     style Client fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
     style APIClient fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
+    style AuthClient fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
     style LE fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
     style Port80 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
     style Port443 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
     style Nginx fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style Web fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style API fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
+    style Auth fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style PY fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
     style TS fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
     style Certbot fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff

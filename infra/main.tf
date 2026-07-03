@@ -60,6 +60,7 @@ resource "aws_instance" "app" {
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     app_domain    = var.app_domain
     api_domain    = var.api_domain
+    auth_domain   = var.auth_domain
     certbot_email = var.certbot_email
     backup_bucket = aws_s3_bucket.db_backups.bucket
   })

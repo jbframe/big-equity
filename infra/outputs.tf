@@ -18,6 +18,11 @@ output "api_url" {
   value       = "https://${var.api_domain}"
 }
 
+output "auth_url" {
+  description = "Public URL nginx serves FusionAuth on (ADR-006)."
+  value       = "https://${var.auth_domain}"
+}
+
 output "instance_id" {
   description = "EC2 instance ID (handy for SSM Session Manager)."
   value       = aws_instance.app.id

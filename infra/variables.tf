@@ -5,7 +5,7 @@ variable "region" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. t3.micro is free-tier-eligible; bump to t3.small if Docker feels tight."
+  description = "EC2 instance type. t3.micro is free-tier-eligible but tight with the FusionAuth JVM aboard (ADR-006) — bump to t3.small if the box thrashes or OOMs."
   type        = string
   default     = "t3.micro"
 }
@@ -40,6 +40,12 @@ variable "api_domain" {
   default     = "api.makejohnacoffee.com"
 }
 
+variable "auth_domain" {
+  description = "Hostname nginx serves FusionAuth on (ADR-006). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  type        = string
+  default     = "id.makejohnacoffee.com"
+}
+
 variable "certbot_email" {
   description = "Email Let's Encrypt uses for certificate expiry / problem notices."
   type        = string
@@ -47,7 +53,7 @@ variable "certbot_email" {
 }
 
 variable "backup_bucket_name" {
-  description = "Globally-unique S3 bucket for simulationDB pg_dump backups (ADR-003). Dumps land under simulationdb/ and expire after 30 days."
+  description = "Globally-unique S3 bucket for pg_dump backups (ADR-003, ADR-006). Dumps land under simulationdb/ and fusionauth/ and expire after 30 days."
   type        = string
   default     = "big-equity-db-backups-jbframe"
 }

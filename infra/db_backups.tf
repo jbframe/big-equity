@@ -30,6 +30,25 @@ resource "aws_s3_bucket_lifecycle_configuration" "db_backups" {
       days_after_initiation = 1
     }
   }
+
+  # Same policy for FusionAuth's database dumps (ADR-006) — the cron dumps
+  # both databases, each to its own prefix.
+  rule {
+    id     = "expire-old-fusionauth-dumps"
+    status = "Enabled"
+
+    filter {
+      prefix = "fusionauth/"
+    }
+
+    expiration {
+      days = 30
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "db_backups" {
@@ -75,10 +94,15 @@ resource "aws_iam_role_policy" "db_backups" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid      = "PutDumps"
-      Effect   = "Allow"
-      Action   = "s3:PutObject"
-      Resource = "${aws_s3_bucket.db_backups.arn}/simulationdb/*"
+      Sid    = "PutDumps"
+      Effect = "Allow"
+      Action = "s3:PutObject"
+      # One prefix per database the backup cron dumps (ADR-003, ADR-006) —
+      # still write-only: the box can drop dumps but not read or delete them.
+      Resource = [
+        "${aws_s3_bucket.db_backups.arn}/simulationdb/*",
+        "${aws_s3_bucket.db_backups.arn}/fusionauth/*",
+      ]
     }]
   })
 }
