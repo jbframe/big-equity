@@ -13,6 +13,11 @@ output "app_url" {
   value       = "https://${var.app_domain}"
 }
 
+output "api_url" {
+  description = "Public URL nginx serves simulationAPI on (ADR-002)."
+  value       = "https://${var.api_domain}"
+}
+
 output "instance_id" {
   description = "EC2 instance ID (handy for SSM Session Manager)."
   value       = aws_instance.app.id

@@ -34,6 +34,12 @@ variable "app_domain" {
   default     = "allin.makejohnacoffee.com"
 }
 
+variable "api_domain" {
+  description = "Hostname nginx serves simulationAPI on (ADR-002). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  type        = string
+  default     = "api.makejohnacoffee.com"
+}
+
 variable "certbot_email" {
   description = "Email Let's Encrypt uses for certificate expiry / problem notices."
   type        = string

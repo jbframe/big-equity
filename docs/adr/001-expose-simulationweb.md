@@ -1,5 +1,7 @@
 # ADR-001: Expose simulationWeb to HTTPS
 
+Date: 2026-07-02
+
 ## Requirements
 - Expose simulationWeb to the internet at `https://allin.makejohnacoffee.com`
 - Keep other containers (simulationPY, simulationTS) private by default

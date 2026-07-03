@@ -16,6 +16,7 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | `simulationPY` | Poker equity simulator — given hero/villain hands and a board, it runs out the remaining cards and reports each player's equity. Stdlib-only Python. | [containers/simulationPY/README.md](containers/simulationPY/README.md) |
 | `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React + Framer Motion; the Monte Carlo runs client-side in a Web Worker. Served static via nginx. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
+| `simulationAPI` | Fastify HTTP API backend (TypeScript, zod-validated routes); will be the CRUD layer in front of a future private DB container. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
 
 ### Public internet exposure
 
@@ -24,8 +25,9 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
 | `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
+| `simulationAPI` | Yes (provisioned at boot; live after the next box rebuild) | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
 
-How the exposure works (see [ADR-001](docs/adr/001-expose-simulationweb.md)):
+How the exposure works (see [ADR-001](docs/adr/001-expose-simulationweb.md); the API follows the same pattern per [ADR-002](docs/adr/002-fastify-backend-container.md), plus per-IP rate limiting at the proxy):
 
 ```mermaid
 %%{init: {'themeVariables': {'edgeLabelBackground': '#000000'}}}%%
@@ -57,12 +59,14 @@ graph TD
 
         subgraph Docker["Docker containers"]
             direction LR
-            Web["<b>simulationWeb</b><br/>:8080 · 🌍 exposed"]
-            PY["simulationPY<br/>:3001 · 🔒 private"]
-            TS["simulationTS<br/>:3002 · 🔒 private"]
+            Web["<b>simulationWeb</b><br/>:8080 · 🌍 exposed via nginx :443"]
+            API["simulationAPI<br/>Fastify · :3003 · 🌍 exposed via nginx :443"]
+            PY["simulationPY<br/>batch · no ports · 🔒 private"]
+            TS["simulationTS<br/>batch · no ports · 🔒 private"]
         end
 
-        Nginx -- "proxy_pass<br/>localhost:8080" --> Web
+        Nginx -- "allin subdomain · :443<br/>proxy_pass localhost:8080" --> Web
+        Nginx -- "api subdomain · :443<br/>proxy_pass localhost:3003" --> API
     end
 
     Certbot -- "1. cert request (ACME)" --> LE
@@ -79,6 +83,7 @@ graph TD
     style Port443 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
     style Nginx fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style Web fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
+    style API fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style PY fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
     style TS fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
     style Certbot fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
@@ -97,9 +102,6 @@ graph TD
 ```
 .
 ├── containers/              # one self-contained, deployable container per dir
-│   ├── simulationPY/        # poker equity simulator (Python)
-│   ├── simulationTS/        # poker equity simulator (TypeScript)
-│   └── simulationWeb/       # browser UI for the simulator
 ├── infra/                   # Terraform + deployment — see infra/README.md
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
 ```
