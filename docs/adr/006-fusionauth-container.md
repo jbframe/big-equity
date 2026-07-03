@@ -52,8 +52,8 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
 - **One database engine, isolated data.** FusionAuth's own `fusionauth`
   database sits on the Postgres already on the box — no second Postgres, and no
   mixing with simulationDB's application tables. The weekly `pg_dump` backup
-  cron (ADR-003) dumps the `simulation` database; FusionAuth's own data is
-  covered separately (see Tradeoffs).
+  cron (ADR-003) dumps both databases, each to its own S3 prefix (see
+  Tradeoffs for the cadence caveat).
 - **OpenSearch off is the headline.** Database search is more than adequate at
   this user scale and saves an entire JVM search container; `SEARCH_TYPE=database`
   is a supported, first-class FusionAuth mode (its own GitHub Action compose
@@ -73,13 +73,17 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
   and the container is capped at `mem_limit: 1024m`; the t3.small bump and the
   larger swapfile are what make room. If it gets OOM-killed under load, raise
   the instance size or the cap — this is the tightest tenant on the box.
-- **Backups don't yet cover the `fusionauth` database.** ADR-003's cron dumps
-  only the `simulation` database. Until that cron is widened (or a second dump
-  added), FusionAuth's data survives restarts/redeploys via the simulationDB
-  volume but **not** a box rebuild. Acceptable while there's no real auth data;
-  revisit before it holds accounts worth keeping.
-- **Two DB passwords now.** `SIMULATIONDB_PASSWORD` (also used as FusionAuth's DB
-  root creds) and a new `FUSIONAUTH_DB_PASSWORD` for its runtime role.
+- **Backups piggyback on ADR-003's weekly cadence.** The backup cron dumps the
+  `fusionauth` database alongside `simulation` (each to its own write-only S3
+  prefix, same 30-day expiry), so auth data survives a box rebuild — but only
+  up to a week of it. Auth data is arguably the most painful kind to lose
+  (accounts, credentials); if real users land, tighten the cadence — a one-line
+  cron change per ADR-003.
+- **One DB password for everything (for now).** FusionAuth's runtime role
+  (`fusionauth`) deliberately reuses `SIMULATIONDB_PASSWORD` — one secret, zero
+  extra setup, but a leak of either service's DB credentials exposes both
+  databases. Deliberate simplification while there's no real auth data; give
+  the runtime role its own secret (a deploy.yml change) before that changes.
 - **Database search has a ceiling.** Fine here; a very large user base would
   eventually want OpenSearch back — at which point the box needs to grow first.
 - **Deviates from the tech-stack auth default** (Better Auth) — a conscious
@@ -91,8 +95,9 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
    `127.0.0.1:9011:9011`, `simulation-net` (external), `mem_limit: 1024m`,
    healthcheck on `/api/status`. No Dockerfile.
 2. **Secrets / .env** — `deploy.yml` writes `containers/fusionAuth/.env` on every
-   deploy from `SIMULATIONDB_PASSWORD` (as `DATABASE_ROOT_*`) and a new
-   `FUSIONAUTH_DB_PASSWORD` (as `DATABASE_PASSWORD`), plus `SEARCH_TYPE=database`,
+   deploy from the existing `SIMULATIONDB_PASSWORD` secret (as both
+   `DATABASE_ROOT_PASSWORD` and `DATABASE_PASSWORD` — one password for now,
+   see Tradeoffs), plus `SEARCH_TYPE=database`,
    `FUSIONAUTH_APP_MEMORY=512M`, `FUSIONAUTH_APP_RUNTIME_MODE=production`,
    `FUSIONAUTH_APP_URL=http://localhost:9011` (internal self-URL; the public URL
    is derived from proxied `Host` + `X-Forwarded-Proto`).
@@ -103,7 +108,12 @@ The box moves **t3.micro → t3.small** (1 → 2 GiB) and the swapfile **512 MiB
    New `auth_domain` variable (`id.makejohnacoffee.com`), threaded through the
    `templatefile()` call, plus an `auth_url` output.
 5. **Swapfile** — `512 MiB → 1 GiB` in `user_data.sh.tftpl`.
-6. **Box rebuild** — the `instance_type` and `user_data` changes both force an
+6. **Backups** — the weekly backup script (`user_data.sh.tftpl`) loops over
+   both databases (`simulation`, `fusionauth`), dumping each to its own bucket
+   prefix; it skips `fusionauth` cleanly until FusionAuth's first boot creates
+   it. `db_backups.tf` adds the `fusionauth/` lifecycle rule (30-day expiry)
+   and the write-only `s3:PutObject` grant on that prefix.
+7. **Box rebuild** — the `instance_type` and `user_data` changes both force an
    instance replacement (`user_data_replace_on_change = true`). Add the
-   `id.makejohnacoffee.com` DNS A record → Elastic IP and set the
-   `FUSIONAUTH_DB_PASSWORD` GitHub secret before rebuilding, then redeploy.
+   `id.makejohnacoffee.com` DNS A record → Elastic IP before rebuilding, then
+   redeploy. No new secrets needed (`SIMULATIONDB_PASSWORD` covers FusionAuth).

@@ -34,7 +34,7 @@ echo '/swapfile none swap defaults 0 0' >>/etc/fstab
 # boxes that predate this script.
 docker network create simulation-net || true
 
-# --- Weekly simulationDB backup to S3 (ADR-003) ---
+# --- Weekly Postgres backups to S3 (ADR-003; fusionauth db added in ADR-006) ---
 # The named volume survives redeploys but not a box rebuild — these dumps are
 # the durability story. Restore drill is ADR-004. AL2023 ships no cron daemon.
 dnf install -y cronie
@@ -54,10 +54,22 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 . "$ENV_FILE"
 
-docker exec simulationdb pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \
-  | gzip \
-  | aws s3 cp - "s3://${backup_bucket}/simulationdb/$(date +%F).sql.gz"
-echo "$(date -Is) backup uploaded"
+# Both databases on the shared Postgres: the simulation app data (ADR-003) and
+# FusionAuth's own database (ADR-006). Each dumps to its own bucket prefix —
+# the instance role is write-only per prefix. fusionauth may not exist yet
+# (FusionAuth creates it on its first boot) — skipping it is not an error.
+for db in "$POSTGRES_DB" fusionauth; do
+  if [ "$(docker exec simulationdb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+        "SELECT 1 FROM pg_database WHERE datname = '$db'")" != "1" ]; then
+    echo "$(date -Is) database $db does not exist; skipping"
+    continue
+  fi
+  if [ "$db" = fusionauth ]; then prefix=fusionauth; else prefix=simulationdb; fi
+  docker exec simulationdb pg_dump -U "$POSTGRES_USER" "$db" \
+    | gzip \
+    | aws s3 cp - "s3://${backup_bucket}/$prefix/$(date +%F).sql.gz"
+  echo "$(date -Is) $db backup uploaded"
+done
 EOF
 chmod +x /usr/local/bin/simulationdb-backup.sh
 

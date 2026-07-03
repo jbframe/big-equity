@@ -53,7 +53,7 @@ variable "certbot_email" {
 }
 
 variable "backup_bucket_name" {
-  description = "Globally-unique S3 bucket for simulationDB pg_dump backups (ADR-003). Dumps land under simulationdb/ and expire after 30 days."
+  description = "Globally-unique S3 bucket for pg_dump backups (ADR-003, ADR-006). Dumps land under simulationdb/ and fusionauth/ and expire after 30 days."
   type        = string
   default     = "big-equity-db-backups-jbframe"
 }

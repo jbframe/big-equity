@@ -183,8 +183,7 @@ gh variable set MY_IP_CIDR   --body "$(curl -s -4 ifconfig.me)/32"
 ```bash
 gh secret set EC2_SSH_KEY < ~/.ssh/ec2_deploy_key   # the PRIVATE key
 gh secret set GHCR_PAT    --body "<a read:packages PAT>"
-gh secret set SIMULATIONDB_PASSWORD   --body "<url-safe db password>"  # simulationDB (ADR-003)
-gh secret set FUSIONAUTH_DB_PASSWORD  --body "<fusionauth db password>" # FusionAuth runtime role (ADR-006)
+gh secret set SIMULATIONDB_PASSWORD --body "<url-safe db password>"  # simulationDB (ADR-003); also FusionAuth's DB creds for now (ADR-006)
 # EC2_HOST is set after the box exists — see next step.
 ```
 
@@ -236,7 +235,7 @@ The one thing the pipeline can't supply is **real secrets**: `.env` is
 intentionally not in the repo. Two exceptions manage themselves: the pipeline
 *writes* `simulationDB`'s and `simulationAPI`'s `.env` on every deploy from
 the `SIMULATIONDB_PASSWORD` GitHub secret (ADR-003), and `fusionAuth`'s from
-`SIMULATIONDB_PASSWORD` + `FUSIONAUTH_DB_PASSWORD` (ADR-006) — nothing to seed,
+the same secret (ADR-006 — one DB password for now) — nothing to seed,
 and rotation is "update the secret + redeploy". For any other container that
 needs environment values, place its `.env` on the box once:
 
@@ -369,9 +368,10 @@ between simulationAPI and simulationDB — no host ports on the DB), adds a
 spike can't summon the OOM killer on the 2 GiB t3.small box, and installs a
 weekly cron (`/usr/local/bin/simulationdb-backup.sh`,
 Sundays 03:10 UTC) that pipes `pg_dump` gzipped into the private
-`db_backups.tf` bucket, where dumps expire after 30 days. The instance role
-grants write-only access to the backup prefix, so a compromised box can't read
-or delete existing backups. The restore drill is
+`db_backups.tf` bucket — both the `simulation` database and FusionAuth's
+`fusionauth` database (ADR-006), each under its own prefix, where dumps expire
+after 30 days. The instance role grants write-only access to the backup
+prefixes, so a compromised box can't read or delete existing backups. The restore drill is
 [ADR-004](../docs/adr/004-simulationdb-restore-verification.md).
 
 **Dev-only simulationDB access toggle**

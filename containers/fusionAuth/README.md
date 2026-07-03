@@ -24,10 +24,14 @@ migrations to run.
 | `DATABASE_ROOT_USERNAME` | `simulation` (the simulationDB superuser) | first-boot: create the `fusionauth` db + role |
 | `DATABASE_ROOT_PASSWORD` | from `SIMULATIONDB_PASSWORD` | " |
 | `DATABASE_USERNAME` | `fusionauth` | runtime app user |
-| `DATABASE_PASSWORD` | from `FUSIONAUTH_DB_PASSWORD` | runtime app password |
+| `DATABASE_PASSWORD` | from `SIMULATIONDB_PASSWORD` (reused for now — ADR-006) | runtime app password |
 
-Both secrets are written into `.env` by the deploy pipeline on every deploy
-(rotation = update the secret + redeploy), the same pattern simulationDB uses.
+Everything comes from the one `SIMULATIONDB_PASSWORD` secret, written into
+`.env` by the deploy pipeline on every deploy (rotation = update the secret +
+redeploy), the same pattern simulationDB uses. Splitting FusionAuth's runtime
+role onto its own password later is a deploy.yml + secret change; note
+FusionAuth stores its DB password, so rotate via its silent-mode config or
+recreate the role.
 
 ## Search engine — OpenSearch is off
 
@@ -47,6 +51,16 @@ terminates TLS for `https://id.makejohnacoffee.com` and proxies to it
 
 Point the `id.makejohnacoffee.com` **DNS A record** at the Elastic IP before the
 box rebuilds, or certbot can't issue the certificate (it retries for ~20 min).
+
+## Data & backups
+
+FusionAuth's data lives in the `fusionauth` database on simulationDB's named
+volume — it survives restarts and redeploys, **not** a box rebuild. The weekly
+backup cron on the box (ADR-003, widened in ADR-006) dumps it alongside the
+`simulation` database, each to its own write-only prefix in the backup bucket
+(`fusionauth/`, 30-day expiry). Until FusionAuth's first boot creates the
+database, the cron skips it cleanly. Worst-case data loss is the weekly
+cadence — tighten the cron before real accounts land.
 
 ## Memory
 
@@ -69,6 +83,5 @@ through creating the initial admin user (FusionAuth's Setup Wizard).
 
 Ships through `deploy.yml` like everything else, minus the image build: the
 pipeline creates `simulation-net` idempotently, syncs this compose file, writes
-`.env` from the `SIMULATIONDB_PASSWORD` and `FUSIONAUTH_DB_PASSWORD` secrets, and
-runs `docker compose up -d`. Liveness is the compose healthcheck
-(`/api/status`).
+`.env` from the `SIMULATIONDB_PASSWORD` secret, and runs
+`docker compose up -d`. Liveness is the compose healthcheck (`/api/status`).
