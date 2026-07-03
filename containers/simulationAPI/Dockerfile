@@ -26,6 +26,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
+# Plain-SQL migrations, applied programmatically at startup (ADR-003) — the
+# migrator resolves drizzle/ relative to dist at runtime.
+COPY drizzle ./drizzle
 
 EXPOSE 3003
 

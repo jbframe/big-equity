@@ -6,6 +6,7 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { healthRoutes } from "./health.js";
+import { resultsRoutes } from "./results.js";
 
 // The browser front end lives on a different subdomain (ADR-002), so every
 // response needs CORS headers for this origin.
@@ -23,6 +24,7 @@ export async function buildApp() {
 
   await app.register(cors, { origin: [WEB_ORIGIN] });
   await app.register(healthRoutes);
+  await app.register(resultsRoutes);
 
   return app;
 }
