@@ -24,7 +24,6 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
 | `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
-
 ---
 
 ## Repository layout
@@ -32,9 +31,13 @@ the full setup guide — lives in **[`infra/README.md`](infra/README.md)**.
 ```
 .
 ├── containers/              # one self-contained, deployable container per dir
+<<<<<<< HEAD
 │   ├── simulationPY/        # poker equity simulator (Python)
 │   ├── simulationTS/        # poker equity simulator (TypeScript)
 │   └── simulationWeb/       # browser UI for the simulator
+=======
+│   └── simulationPY/        # the poker equity sim
+>>>>>>> 306efb7 (Rename sim containers to simulationPY/TS, add simulationWeb)
 ├── infra/                   # Terraform + deployment — see infra/README.md
 └── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
 ```
