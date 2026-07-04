@@ -88,11 +88,15 @@ jobs:
           BUILD: ${{ matrix.container.build }}
           SIMULATIONDB_PASSWORD: ${{ secrets.SIMULATIONDB_PASSWORD }}
           FUSIONAUTHDB_PASSWORD: ${{ secrets.FUSIONAUTHDB_PASSWORD }}
+          # simulationAPI's OIDC relying-party secrets (ADR-007): the
+          # poker_equity client secret and the session-cookie signing key.
+          FUSIONAUTH_CLIENT_SECRET: ${{ secrets.FUSIONAUTH_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD,FUSIONAUTHDB_PASSWORD
+          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD,FUSIONAUTHDB_PASSWORD,FUSIONAUTH_CLIENT_SECRET,SESSION_SECRET
           script: |
             set -e
             # Private path between simulationAPI and simulationDB (ADR-003).
@@ -111,6 +115,14 @@ jobs:
                 exit 1
               fi
             fi
+            # simulationAPI is also the OIDC login wall for the SPA (ADR-007),
+            # so it needs the FusionAuth client secret and a session key.
+            if [ "$CONTAINER" = "simulationAPI" ]; then
+              if [ -z "$FUSIONAUTH_CLIENT_SECRET" ] || [ -z "$SESSION_SECRET" ]; then
+                echo "FUSIONAUTH_CLIENT_SECRET and SESSION_SECRET secrets must be set" >&2
+                exit 1
+              fi
+            fi
             if [ "$CONTAINER" = "simulationDB" ]; then
               cat > .env <<EOF
             POSTGRES_USER=simulation
@@ -121,6 +133,12 @@ jobs:
             if [ "$CONTAINER" = "simulationAPI" ]; then
               cat > .env <<EOF
             DATABASE_URL=postgresql://simulation:$SIMULATIONDB_PASSWORD@simulationdb:5432/simulation
+            AUTH_ISSUER=https://id.makejohnacoffee.com
+            AUTH_CLIENT_ID=c37d57fd-f64d-42fc-bf27-048d658009ca
+            AUTH_CLIENT_SECRET=$FUSIONAUTH_CLIENT_SECRET
+            AUTH_REDIRECT_URI=https://allin.makejohnacoffee.com/auth/callback
+            AUTH_APP_URL=https://allin.makejohnacoffee.com
+            SESSION_SECRET=$SESSION_SECRET
             EOF
             fi
 

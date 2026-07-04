@@ -185,6 +185,8 @@ gh secret set EC2_SSH_KEY < ~/.ssh/ec2_deploy_key   # the PRIVATE key
 gh secret set GHCR_PAT    --body "<a read:packages PAT>"
 gh secret set SIMULATIONDB_PASSWORD   --body "<url-safe db password>"  # simulationDB (ADR-003)
 gh secret set FUSIONAUTHDB_PASSWORD  --body "<fusionauth db password>" # FusionAuth runtime role (ADR-006)
+gh secret set FUSIONAUTH_CLIENT_SECRET --body "<poker_equity client secret>" # SPA login wall (ADR-007)
+gh secret set SESSION_SECRET --body "$(openssl rand -base64 32)"       # session-cookie signing key (ADR-007)
 # EC2_HOST is set after the box exists — see next step.
 ```
 
@@ -345,7 +347,10 @@ vhosts: `app_domain` (default `allin.makejohnacoffee.com`) proxying to
 simulationWeb on `127.0.0.1:8080`, and `api_domain` (default
 `api.makejohnacoffee.com`) proxying to simulationAPI on `127.0.0.1:3003` — plus
 `auth_domain` (default `id.makejohnacoffee.com`, ADR-006) proxying to FusionAuth
-on `127.0.0.1:9011`. It
+on `127.0.0.1:9011`. The `app_domain` vhost is gated behind a FusionAuth login
+([ADR-007](../docs/adr/007-fusionauth-login-wall.md)): an `auth_request` asks
+simulationAPI (`/auth/verify`) on every hit and a 401 redirects to `/auth/login`,
+while a never-gated `/auth/` location proxies the OIDC flow to `:3003`. It
 then runs `certbot --nginx` per domain, which obtains a certificate for each
 and rewrites its vhost to terminate TLS on 443 and 301-redirect 80 → 443.
 Issuance retries every 30 s (up to 20 min per domain) because the Elastic IP —

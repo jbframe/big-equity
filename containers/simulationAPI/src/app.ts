@@ -1,3 +1,4 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import {
@@ -5,6 +6,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
+import { authRoutes } from "./auth.js";
 import { healthRoutes } from "./health.js";
 import { resultsRoutes } from "./results.js";
 
@@ -23,7 +25,11 @@ export async function buildApp() {
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(cors, { origin: [WEB_ORIGIN] });
+  // Cookie support underpins the OIDC session (ADR-007); the auth routes are
+  // the login wall for the simulationWeb SPA, enforced by nginx auth_request.
+  await app.register(cookie);
   await app.register(healthRoutes);
+  await app.register(authRoutes);
   await app.register(resultsRoutes);
 
   return app;

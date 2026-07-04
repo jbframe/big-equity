@@ -28,8 +28,8 @@ Technology choices follow the defaults in
 | --- | --- | --- |
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
-| `simulationWeb` | Yes | https://allin.makejohnacoffee.com |
-| `simulationAPI` | Yes | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)) |
+| `simulationWeb` | Yes | https://allin.makejohnacoffee.com — behind a FusionAuth login ([ADR-007](docs/adr/007-fusionauth-login-wall.md)) |
+| `simulationAPI` | Yes | https://api.makejohnacoffee.com (per [ADR-002](docs/adr/002-fastify-backend-container.md)); also the SPA's OIDC login wall ([ADR-007](docs/adr/007-fusionauth-login-wall.md)) |
 | `simulationDB` | No | Docker network only ([ADR-003](docs/adr/003-simulationdb-container.md)); dev-only toggle per [ADR-005](docs/adr/005-simulationdb-dev-access-toggle.md) |
 | `fusionAuth` | Yes | https://id.makejohnacoffee.com (per [ADR-006](docs/adr/006-fusionauth-container.md)) |
 
@@ -79,6 +79,7 @@ graph TD
         end
 
         Nginx -- "allin subdomain · :443<br/>proxy_pass localhost:8080" --> Web
+        Nginx -. "auth_request → /auth/verify<br/>401 → FusionAuth login (ADR-007)" .-> API
         Nginx -- "api subdomain · :443<br/>proxy_pass localhost:3003" --> API
         Nginx -- "id subdomain · :443<br/>proxy_pass localhost:9011" --> Auth
     end

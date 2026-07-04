@@ -13,6 +13,15 @@ definition.
 The browser front end at `https://allin.makejohnacoffee.com` calls this API on
 a different subdomain, so CORS is enabled for that origin only.
 
+It also doubles as the **OIDC relying party** that guards that front end
+([ADR-007](../../docs/adr/007-fusionauth-login-wall.md)): a small `src/auth.ts`
+module runs the authorization-code flow against FusionAuth
+([ADR-006](../../docs/adr/006-fusionauth-container.md)), validates the id_token,
+and issues a stateless signed session cookie. The host nginx `allin` vhost uses
+`auth_request` to ask `GET /auth/verify` on every hit, so no anonymous request
+reaches the SPA. FusionAuth stays the sole user store — there are no accounts
+here.
+
 ## Prerequisites
 
 - Node.js 24 (LTS — see `.nvmrc`)
@@ -60,20 +69,28 @@ dev-only 5432 toggle for your current IP via the `db-access` workflow
 | Route                 | Response           | Purpose                                        |
 | --------------------- | ------------------ | ---------------------------------------------- |
 | `GET /health`         | `{"status":"ok"}`  | Liveness for the compose healthcheck and nginx |
+| `GET /auth/login`     | `302` to FusionAuth | Start the OIDC login flow                      |
+| `GET /auth/callback`  | `302` to the app    | Code exchange + id_token check, sets session   |
+| `GET /auth/verify`    | `200` / `401`       | nginx `auth_request` gate (session cookie)     |
+| `GET /auth/me`        | identity or `401`   | Who's signed in (for the SPA)                  |
+| `GET /auth/logout`    | `302` to FusionAuth | Clear session, end the IdP session             |
 | `POST /results`       | `201` created row  | Store a batch simulator run                    |
 | `GET /results`        | `{results: [...]}` | List runs, newest first (`limit`/`offset`)     |
 | `GET /results/:id`    | row or `404`       | Fetch one run                                  |
 | `DELETE /results/:id` | `204` or `404`     | Remove a run                                   |
 
 Results are immutable records of a batch run, so there is deliberately no
-update route.
+update route. The `/auth/*` routes ([ADR-007](../../docs/adr/007-fusionauth-login-wall.md))
+are same-origin with the SPA (reached via the `allin` vhost), so they need no
+CORS; the results API stays CORS-restricted to the web origin.
 
 ## Layout
 
 | File                | Responsibility                                        |
 | ------------------- | ----------------------------------------------------- |
-| `src/app.ts`        | App factory: zod compilers, CORS, route registration  |
+| `src/app.ts`        | App factory: zod compilers, CORS, cookie, route registration |
 | `src/health.ts`     | `GET /health` route + zod schema                      |
+| `src/auth.ts`       | OIDC relying-party routes + session cookie (ADR-007)  |
 | `src/results.ts`    | CRUD routes; zod schemas derived from the table       |
 | `src/db/schema.ts`  | Drizzle table definitions + shared tally schemas      |
 | `src/db/client.ts`  | pg pool + drizzle instance (`DATABASE_URL`)           |
@@ -93,3 +110,10 @@ in, per the [ADR-001](../../docs/adr/001-expose-simulationweb.md) pattern.
 Public exposure at `https://api.makejohnacoffee.com` is provisioned by
 Terraform at instance boot (`infra/user_data.sh.tftpl`): its own Let's Encrypt
 cert plus per-IP rate limiting at the proxy (10 r/s, burst 20, 429 on excess).
+
+The deploy pipeline also writes the OIDC config into `.env`: `AUTH_ISSUER`,
+`AUTH_CLIENT_ID`, `AUTH_REDIRECT_URI`, `AUTH_APP_URL`, plus the two secrets
+`FUSIONAUTH_CLIENT_SECRET` (the `poker_equity` client secret) and
+`SESSION_SECRET` (the session-cookie signing key) from GitHub secrets. The
+`allin` vhost's `auth_request` gate lives in `user_data.sh.tftpl` alongside the
+`api` vhost ([ADR-007](../../docs/adr/007-fusionauth-login-wall.md)).

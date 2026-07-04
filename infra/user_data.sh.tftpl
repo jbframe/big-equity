@@ -111,18 +111,46 @@ EOF
 
 # HTTP-only vhosts to start. certbot --nginx rewrites them below: adds the 443
 # TLS server blocks and the 80 -> 443 redirects.
+#
+# The app vhost is gated behind FusionAuth (ADR-007): simulationAPI on :3003
+# doubles as the OIDC relying party. nginx auth_request asks it (GET
+# /auth/verify) whether the request carries a valid session cookie on every
+# hit; a 401 bounces the browser to /auth/login, which simulationAPI proxies
+# and which starts the login flow at id.makejohnacoffee.com. Only the static
+# SPA on :8080 is gated — the /auth/ endpoints must stay reachable to log in.
 cat >/etc/nginx/conf.d/${app_domain}.conf <<'EOF'
 server {
     listen 80;
     server_name ${app_domain};
 
+    # OIDC endpoints (login/callback/verify/me/logout) — never gated, or
+    # there'd be no way to authenticate. Proxied to simulationAPI.
+    location /auth/ {
+        limit_req zone=auth_perip burst=60 nodelay;
+        proxy_pass http://127.0.0.1:3003;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
+        # Login wall: simulationAPI validates the session cookie and returns
+        # 200 (serve the SPA) or 401 (redirect to log in). The subrequest
+        # carries the original cookies; no body is forwarded.
+        auth_request /auth/verify;
+        error_page 401 = @signin;
+
         limit_req zone=web_perip burst=60 nodelay;
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location @signin {
+        return 302 /auth/login?rd=$request_uri;
     }
 }
 EOF
