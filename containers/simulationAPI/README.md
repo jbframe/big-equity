@@ -1,27 +1,29 @@
 # simulationAPI
 
-Fastify HTTP API backend for the equity simulator ([ADR-002](../../docs/adr/002-fastify-backend-container.md)).
-A long-running service — unlike the batch simulators — that is the CRUD layer
-in front of the private simulationDB container
-([ADR-003](../../docs/adr/003-simulationdb-container.md)). Every route is
-schema-first: request/response shapes are defined once in zod and give runtime
-validation plus inferred handler types via `fastify-type-provider-zod`. For
-the database routes those zod schemas are *derived from the Drizzle table
-definitions* (`drizzle-zod`), so table shape and API shape share one
-definition.
+Fastify HTTP service ([ADR-002](../../docs/adr/002-fastify-backend-container.md))
+— a long-running container, unlike the batch simulators — with **two roles**,
+one per hostname:
 
-The browser front end at `https://allin.makejohnacoffee.com` calls this API on
-a different subdomain, so CORS is enabled for that origin only.
+1. **DB CRUD backend** (`api.makejohnacoffee.com`) — the CRUD layer in front
+   of the private simulationDB container
+   ([ADR-003](../../docs/adr/003-simulationdb-container.md)). Every route is
+   schema-first: request/response shapes are defined once in zod and give
+   runtime validation plus inferred handler types via
+   `fastify-type-provider-zod`. For the database routes those zod schemas are
+   *derived from the Drizzle table definitions* (`drizzle-zod`), so table
+   shape and API shape share one definition. The browser front end at
+   `https://allin.makejohnacoffee.com` calls this API on a different
+   subdomain, so CORS is enabled for that origin only.
 
-It also doubles as the **app gateway** that guards that front end
-([ADR-007](../../docs/adr/007-fusionauth-login-wall.md),
-[ADR-010](../../docs/adr/010-gateway-in-simulationapi.md)): `src/auth.ts`
-runs the authorization-code flow against FusionAuth
-([ADR-006](../../docs/adr/006-fusionauth-container.md)), validates the
-id_token, issues a stateless signed session cookie, and proxies the whole
-`allin.…` hostname to the static SPA container — but only when that cookie is
-valid, so no anonymous request reaches the SPA. FusionAuth stays the sole
-user store — there are no accounts here.
+2. **App gateway** (`allin.makejohnacoffee.com`) — the login wall that guards
+   that front end ([ADR-007](../../docs/adr/007-fusionauth-login-wall.md),
+   [ADR-010](../../docs/adr/010-gateway-in-simulationapi.md)): `src/auth.ts`
+   runs the authorization-code flow against FusionAuth
+   ([ADR-006](../../docs/adr/006-fusionauth-container.md)), validates the
+   id_token, issues a stateless signed session cookie, and proxies the whole
+   `allin.…` hostname to the static SPA container — but only when that cookie
+   is valid, so no anonymous request reaches the SPA. FusionAuth stays the
+   sole user store — there are no accounts here.
 
 ## Prerequisites
 
@@ -104,6 +106,56 @@ update route.
 | `drizzle.config.ts` | drizzle-kit config (schema → `drizzle/` SQL)          |
 | `drizzle/`          | Generated SQL migrations, committed                   |
 | `src/*.test.ts`     | Integration tests via `app.inject`; the CRUD round trip runs when `DATABASE_URL` points at a disposable Postgres |
+
+## Component diagram (C4)
+
+How the modules above fit together inside the container, and which
+neighbouring containers each one talks to. The container-level view lives in
+the [root README](../../README.md#container-diagram-c4):
+
+```mermaid
+%%{init: {'themeVariables': {'edgeLabelBackground': '#1f2937'}}}%%
+graph TB
+    Proxy["<b>reverseProxy</b><br/>[Container: nginx + certbot]<br/>Sends both vhosts here:<br/>api.… and allin.…"]
+    Web["<b>simulationWeb</b><br/>[Container: React SPA on nginx]<br/>Static front-end"]
+    Auth["<b>fusionAuth</b><br/>[Container: FusionAuth, JVM]<br/>Identity provider, sole user store"]
+    DB[("<b>simulationDB</b><br/>[Container: PostgreSQL 18]<br/>simulation_results table")]
+
+    subgraph API["simulationAPI · Node.js / Fastify · :3003"]
+        Main["<b>main.ts</b><br/>[Component: entry point]<br/>Builds the app, migrates,<br/>then listens"]
+        App["<b>app.ts</b><br/>[Component: app factory]<br/>Fastify + zod compilers, CORS for<br/>the web origin, cookie plugin,<br/>route registration"]
+        Health["<b>health.ts</b><br/>[Component: route]<br/>GET /health liveness for<br/>the compose healthcheck"]
+        Gateway["<b>auth.ts</b><br/>[Component: app gateway]<br/>OIDC relying party + login wall:<br/>/auth/* routes, signed session<br/>cookie, session-gated SPA proxy —<br/>host-constrained to allin.…"]
+        Results["<b>results.ts</b><br/>[Component: routes]<br/>CRUD for simulation results;<br/>zod schemas derived from the table"]
+        Schema["<b>db/schema.ts</b><br/>[Component: Drizzle schema]<br/>Table definitions +<br/>shared tally schemas"]
+        Client["<b>db/client.ts</b><br/>[Component: DB client]<br/>pg pool + drizzle instance<br/>(DATABASE_URL)"]
+        Migrate["<b>db/migrate.ts</b><br/>[Component: migration runner]<br/>Applies drizzle/ SQL at startup;<br/>bounded connect-retry"]
+    end
+
+    Proxy -- "HTTP :3003<br/>both hostnames" --> App
+    Main -- "builds" --> App
+    Main -- "runs before listen" --> Migrate
+    App -- "registers" --> Health
+    App -- "registers" --> Gateway
+    App -- "registers" --> Results
+    Gateway -. "OIDC: authorize/logout redirects;<br/>back-channel code→token, JWKS<br/>HTTP :9011" .-> Auth
+    Gateway -- "Proxies every non-/auth path<br/>when the session is valid<br/>HTTP :80" --> Web
+    Results -- "insert / select / delete" --> Client
+    Results -- "derives zod schemas from" --> Schema
+    Migrate -- "migrates via" --> Client
+    Client -- "postgres :5432" --> DB
+
+    classDef component fill:#85bbf0,stroke:#5d82a8,color:#000000
+    classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
+    class Main,App,Health,Gateway,Results,Schema,Client,Migrate component
+    class Proxy,Web,Auth,DB container
+    style API fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#94a3b8
+
+    linkStyle default stroke:#94a3b8,color:#ffffff
+    linkStyle 0,7 stroke:#4fb477
+    linkStyle 6 stroke:#38bdf8
+    linkStyle 11 stroke:#e46e6e
+```
 
 ## Deployment
 
