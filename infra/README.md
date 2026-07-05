@@ -90,7 +90,7 @@ infra/
 ├── db_backups.tf        # simulationDB backup bucket + instance role (ADR-003)
 ├── db_access.tf         # OIDC role for the dev-only 5432 toggle (ADR-005)
 ├── ec2_deploy_key.pub   # committed deploy public key (Terraform reads it here)
-├── user_data.sh.tftpl   # first boot: Docker + Compose, swapfile, simulation-net, backup cron, nginx + Let's Encrypt, post-quantum SSH KEX
+├── user_data.sh.tftpl   # first boot: Docker + Compose, swapfile, simulation-net, backup cron, /etc/letsencrypt dir, post-quantum SSH KEX (nginx + certbot are the reverseProxy container since ADR-009)
 └── outputs.tf
 
 .github/workflows/
@@ -224,9 +224,10 @@ gh variable set DB_SG_ID           --body "$(terraform -chdir=infra output -raw 
 Also point the **DNS A records** for `app_domain` (default
 `allin.makejohnacoffee.com`), `api_domain` (default `api.makejohnacoffee.com`),
 and `auth_domain` (default `id.makejohnacoffee.com`, FusionAuth per ADR-006) at
-that same Elastic IP — certbot can't issue the TLS certificates until DNS
-resolves to the box (the bootstrap retries each domain for up to 20 minutes, so
-setting DNS just after the apply is fine).
+that same Elastic IP — certbot (inside the reverseProxy container, ADR-009)
+can't issue the TLS certificates until DNS resolves to the box. Its issue loop
+retries every 30 s indefinitely, so setting DNS after the apply is fine; until
+then the box serves a self-signed placeholder.
 
 ### 6. (Optional) give a container its `.env`
 
@@ -277,8 +278,10 @@ it never changes a running instance. The instance is therefore configured with
 `user_data_replace_on_change = true`: any change to the bootstrap script makes
 the next `terraform apply` **destroy and recreate the instance**, which re-runs
 the script from scratch. That's the supported way to change anything on the box
-itself (installed packages, nginx config, certbot). Never hand-edit the box —
-change the template and rebuild, so the box always matches the repo.
+itself (installed packages, swap, cron). Never hand-edit the box — change the
+template and rebuild, so the box always matches the repo. (Proxy/TLS routing is
+*not* box config since ADR-009 — that's `containers/reverseProxy/`, changed by
+a normal deploy.)
 
 **Rebuild via CI** (the normal path): push the `infra/**` change to `main` (or
 merge the PR), review the plan — it should show `aws_instance.app` being
@@ -297,7 +300,7 @@ What survives a rebuild and what doesn't:
 | Thing | After rebuild |
 |---|---|
 | Elastic IP / `EC2_HOST` / DNS | ✅ unchanged — the EIP re-attaches to the new instance |
-| TLS certificates (one per subdomain) | 🔁 reissued automatically at boot. Let's Encrypt allows **5 duplicate certs per week** — don't rebuild in a tight loop |
+| TLS certificates (one per subdomain) | 🔁 reissued automatically once the reverseProxy container deploys (ADR-009); `/etc/letsencrypt` dies with the box. Let's Encrypt allows **5 duplicate certs per week** — don't rebuild in a tight loop |
 | Containers & images | 🔁 redeploy them (step 3 below) |
 | Container `.env` files | ❌ gone — re-seed them ([step 6](#6-optional-give-a-container-its-env)) |
 | simulationDB data (named volume) | ❌ gone — restore the latest dump from the backup bucket ([ADR-004](../docs/adr/004-simulationdb-restore-verification.md)) |
@@ -305,11 +308,13 @@ What survives a rebuild and what doesn't:
 
 After the apply finishes:
 
-1. Give cloud-init a few minutes to finish the bootstrap (Docker, nginx,
-   certificate). Watch it with:
+1. Give cloud-init a few minutes to finish the bootstrap (Docker, swap, cron).
+   Watch it with:
    `ssh -i ~/.ssh/ec2_deploy_key ec2-user@<IP> sudo tail -f /var/log/cloud-init-output.log`
 2. Re-seed any container `.env` files ([step 6](#6-optional-give-a-container-its-env)).
-3. Redeploy all containers: `gh workflow run deploy.yml`.
+3. Redeploy all containers: `gh workflow run deploy.yml`. This includes the
+   reverseProxy edge (ADR-009), which issues fresh TLS certificates on arrival
+   — nothing serves 80/443 until it's up.
 4. Verify: `curl -I https://allin.makejohnacoffee.com` returns `200` (and
    `curl -I http://…` returns a `301` to https),
    `curl https://api.makejohnacoffee.com/health` returns `{"status":"ok"}`, and
@@ -343,32 +348,35 @@ is key-only, no password auth; set `ssh_open = false` to lock it to `MY_IP_CIDR`
 The deploy public key is read from the committed `infra/ec2_deploy_key.pub`, so
 the terraform pipeline can provision without access to your `~/.ssh`.
 
-**HTTPS via nginx + Let's Encrypt** ([ADR-001](../docs/adr/001-expose-simulationweb.md),
-[ADR-002](../docs/adr/002-fastify-backend-container.md)).
+**HTTPS via the reverseProxy container** ([ADR-001](../docs/adr/001-expose-simulationweb.md),
+[ADR-002](../docs/adr/002-fastify-backend-container.md), containerized in
+[ADR-009](../docs/adr/009-reverse-proxy-container.md)).
 Ports 80/443 are open by default (`open_web = true`; set it `false` for
-non-web batch workloads). First boot installs nginx and certbot and writes two
-vhosts: `app_domain` (default `allin.makejohnacoffee.com`) proxying to
-simulationWeb on `127.0.0.1:8080`, and `api_domain` (default
-`api.makejohnacoffee.com`) proxying to simulationAPI on `127.0.0.1:3003` — plus
-`auth_domain` (default `id.makejohnacoffee.com`, ADR-006) proxying to FusionAuth
-on `127.0.0.1:9011`. The `app_domain` vhost is gated behind a FusionAuth login
-([ADR-007](../docs/adr/007-fusionauth-login-wall.md)): an `auth_request` asks
-simulationAPI (`/auth/verify`) on every hit and a 401 redirects to `/auth/login`,
-while a never-gated `/auth/` location proxies the OIDC flow to `:3003`. It
-then runs `certbot --nginx` per domain, which obtains a certificate for each
-and rewrites its vhost to terminate TLS on 443 and 301-redirect 80 → 443.
-Issuance retries every 30 s (up to 20 min per domain) because the Elastic IP —
-where DNS points — attaches shortly *after* first boot. The certbot systemd
-timer renews twice daily and a deploy hook reloads nginx. Routing is
-hostname-based, so exposing a future container is one more `server` block on
-its own subdomain; the other containers stay loopback-only and unreachable
-from the internet.
+non-web batch workloads), and land on `containers/reverseProxy/` — nginx +
+certbot in one image, the only container with host ports. It terminates TLS
+and routes by hostname over `simulation-net`: `app_domain` (default
+`allin.makejohnacoffee.com`) to `simulationweb:80`, `api_domain` (default
+`api.makejohnacoffee.com`) to `simulationapi:3003`, and `auth_domain` (default
+`id.makejohnacoffee.com`, ADR-006) to `fusionauth:9011`. The `app_domain`
+vhost routes wholesale to simulationAPI, the app gateway
+([ADR-010](../docs/adr/010-gateway-in-simulationapi.md)): it enforces the
+FusionAuth login wall ([ADR-007](../docs/adr/007-fusionauth-login-wall.md))
+in-process and proxies valid sessions through to `simulationweb:80` — the
+edge itself is auth-agnostic.
+Certificates are certbot webroot HTTP-01, one per subdomain, stored in the
+bind-mounted host `/etc/letsencrypt`: an in-container loop issues on first
+run (retrying every 30 s while DNS/the Elastic IP catch up, serving a
+self-signed placeholder meanwhile), renews twice daily, and hot-reloads
+nginx. Routing is hostname-based, so exposing a future container is one more
+`server` block in the proxy's template — a container deploy, not a box
+rebuild; the other containers have no host ports and are unreachable from
+the internet.
 
 **Rate limiting at the proxy.** Nginx enforces per-client-IP request limits
-before anything reaches a container: 30 r/s (burst 60) on the web vhost,
+before anything reaches a backend: 30 r/s (burst 60) on the web vhost,
 10 r/s (burst 20) on the API vhost, and 30 r/s (burst 60) on the FusionAuth
-vhost, defined in `/etc/nginx/conf.d/00-ratelimit.conf`. Requests over the burst get **429 Too
-Many Requests**. This is flood protection, not auth — per ADR-002,
+vhost, defined in the proxy's config template. Requests over the burst get
+**429 Too Many Requests**. This is flood protection, not auth — per ADR-002,
 authentication and per-user limits live in the API itself.
 
 **simulationDB groundwork** ([ADR-003](../docs/adr/003-simulationdb-container.md)).

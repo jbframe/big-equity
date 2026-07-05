@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import proxy from "@fastify/http-proxy";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   createRemoteJWKSet,
@@ -7,15 +8,19 @@ import {
   type JWTPayload,
 } from "jose";
 
-// simulationAPI doubles as the OIDC relying party (a "BFF") that guards the
-// simulationWeb SPA (ADR-007). FusionAuth (ADR-006) is the identity provider
-// and the sole user store — this file only runs the authorization-code flow
-// against it, validates the returned id_token, and mints a signed session
-// cookie. No user tables here; that's FusionAuth's job.
+// simulationAPI is the app gateway for the simulationWeb SPA (ADR-010): the
+// OIDC relying party (a "BFF", ADR-007) *and* the login wall in one place.
+// FusionAuth (ADR-006) is the identity provider and the sole user store —
+// this file runs the authorization-code flow against it, validates the
+// returned id_token, mints a signed session cookie, and proxies the app
+// hostname to the static SPA container only when that cookie is valid. No
+// user tables here; that's FusionAuth's job.
 //
-// The public login wall is enforced by nginx `auth_request` calling GET
-// /auth/verify on every hit to https://allin.makejohnacoffee.com; the browser
-// never talks to these routes cross-origin, so they need no CORS.
+// Everything in this file is host-constrained to the app hostname
+// (allin.makejohnacoffee.com): the reverse proxy sends that whole vhost here,
+// and requests on the api hostname 404 on these routes instead of exposing a
+// second login surface. The browser never talks to these routes
+// cross-origin, so they need no CORS.
 
 // All config is env-driven and written into .env by the deploy pipeline. The
 // fallbacks target the poker_equity FusionAuth application so a developer can
@@ -29,6 +34,9 @@ const REDIRECT_URI =
   process.env["AUTH_REDIRECT_URI"] ??
   "https://allin.makejohnacoffee.com/auth/callback";
 const APP_URL = process.env["AUTH_APP_URL"] ?? "https://allin.makejohnacoffee.com";
+// Host header the gateway routes belong to — the find-my-way `host`
+// constraint matches it exactly.
+const APP_HOST = new URL(APP_URL).host;
 // HS256 key for our own session + transaction cookies. The dev fallback keeps
 // local `npm test` working; the deploy pipeline writes a real 32-byte secret.
 const SESSION_SECRET = new TextEncoder().encode(
@@ -95,9 +103,13 @@ async function readSession(
 }
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
+  // Only requests carrying the app hostname match these routes; on any other
+  // Host (api.…, bare IP) they don't exist.
+  const constraints = { host: APP_HOST };
+
   // Begin login: stash state/nonce/return-path in a short-lived signed cookie
   // (no server-side session store needed) and bounce to FusionAuth.
-  app.get("/auth/login", async (req, reply) => {
+  app.get("/auth/login", { constraints }, async (req, reply) => {
     const state = randomBytes(32).toString("base64url");
     const nonce = randomBytes(32).toString("base64url");
     const rd = safeReturnPath((req.query as Record<string, unknown>)["rd"]);
@@ -123,7 +135,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // OIDC callback: verify state, swap the code for tokens, validate the
   // id_token, then set the session cookie and return the user where they were.
-  app.get("/auth/callback", async (req, reply) => {
+  app.get("/auth/callback", { constraints }, async (req, reply) => {
     const query = req.query as Record<string, string | undefined>;
     const txToken = req.cookies[TX_COOKIE];
     if (!txToken) return reply.code(400).send({ message: "missing login state" });
@@ -185,16 +197,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.redirect(APP_URL + tx.rd);
   });
 
-  // nginx `auth_request` target: 200 when the session cookie is valid, 401
-  // otherwise. Body-less and dependency-free so it's cheap on every request.
-  app.get("/auth/verify", async (req, reply) => {
-    const session = await readSession(req);
-    if (!session) return reply.code(401).send();
-    return reply.code(200).send();
-  });
-
-  // Lets the SPA show who's signed in; same 200/401 contract as /verify.
-  app.get("/auth/me", async (req, reply) => {
+  // Lets the SPA show who's signed in: 200 with the claims, 401 without a
+  // valid session.
+  app.get("/auth/me", { constraints }, async (req, reply) => {
     const session = await readSession(req);
     if (!session) return reply.code(401).send({ message: "not authenticated" });
     return reply.send({
@@ -206,7 +211,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // Clear our session and hand off to FusionAuth's logout so the IdP session
   // ends too, returning to the app afterwards.
-  app.get("/auth/logout", async (_req, reply: FastifyReply) => {
+  app.get("/auth/logout", { constraints }, async (_req, reply: FastifyReply) => {
     reply.clearCookie(SESSION_COOKIE, cookieBase);
     const logoutUrl = new URL(LOGOUT_ENDPOINT);
     logoutUrl.search = new URLSearchParams({
@@ -215,7 +220,25 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }).toString();
     return reply.redirect(logoutUrl.toString());
   });
+
+  // The login wall itself (ADR-010): every other path on the app hostname is
+  // proxied to the static SPA container, but only with a valid session — an
+  // anonymous browser is bounced to /auth/login and comes back here after
+  // FusionAuth. The /auth/* routes above win over this wildcard (path
+  // specificity beats it), so the flow can always start. Read at registration
+  // time, not module load, so tests can point it at a stub upstream.
+  const webUpstream = process.env["WEB_UPSTREAM"] ?? "http://simulationweb:80";
+  await app.register(proxy, {
+    upstream: webUpstream,
+    constraints,
+    preHandler: async (req, reply) => {
+      if (!(await readSession(req))) {
+        return reply.redirect(`/auth/login?rd=${encodeURIComponent(req.url)}`);
+      }
+    },
+  });
 }
 
-// Exported for tests: lets them mint a session cookie without a real OIDC flow.
-export const __test = { signSession, SESSION_COOKIE };
+// Exported for tests: lets them mint a session cookie without a real OIDC
+// flow, and target the host-constrained gateway routes.
+export const __test = { signSession, SESSION_COOKIE, APP_HOST };

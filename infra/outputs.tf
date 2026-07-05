@@ -9,17 +9,17 @@ output "ssh" {
 }
 
 output "app_url" {
-  description = "Public URL nginx serves simulationWeb on (ADR-001)."
+  description = "Public URL the reverseProxy container serves simulationWeb on (ADR-001, ADR-009)."
   value       = "https://${var.app_domain}"
 }
 
 output "api_url" {
-  description = "Public URL nginx serves simulationAPI on (ADR-002)."
+  description = "Public URL the reverseProxy container serves simulationAPI on (ADR-002, ADR-009)."
   value       = "https://${var.api_domain}"
 }
 
 output "auth_url" {
-  description = "Public URL nginx serves FusionAuth on (ADR-006)."
+  description = "Public URL the reverseProxy container serves FusionAuth on (ADR-006, ADR-009)."
   value       = "https://${var.auth_domain}"
 }
 

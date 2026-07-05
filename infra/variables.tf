@@ -28,28 +28,25 @@ variable "open_web" {
   default     = true
 }
 
+# The three hostnames are only used for outputs since ADR-009 — the routing
+# itself lives in containers/reverseProxy/docker-compose.yml (which also
+# carries the certbot email). Keep these in sync with that file.
 variable "app_domain" {
-  description = "Hostname nginx serves simulationWeb on (ADR-001). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  description = "Hostname the reverseProxy container serves simulationWeb on (ADR-001, ADR-009). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
   type        = string
   default     = "allin.makejohnacoffee.com"
 }
 
 variable "api_domain" {
-  description = "Hostname nginx serves simulationAPI on (ADR-002). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  description = "Hostname the reverseProxy container serves simulationAPI on (ADR-002, ADR-009). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
   type        = string
   default     = "api.makejohnacoffee.com"
 }
 
 variable "auth_domain" {
-  description = "Hostname nginx serves FusionAuth on (ADR-006). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
+  description = "Hostname the reverseProxy container serves FusionAuth on (ADR-006, ADR-009). Its DNS A record must point at the Elastic IP before certbot can issue a certificate."
   type        = string
   default     = "id.makejohnacoffee.com"
-}
-
-variable "certbot_email" {
-  description = "Email Let's Encrypt uses for certificate expiry / problem notices."
-  type        = string
-  default     = "framejb@gmail.com"
 }
 
 variable "backup_bucket_name" {

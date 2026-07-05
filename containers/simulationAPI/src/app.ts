@@ -25,8 +25,9 @@ export async function buildApp() {
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(cors, { origin: [WEB_ORIGIN] });
-  // Cookie support underpins the OIDC session (ADR-007); the auth routes are
-  // the login wall for the simulationWeb SPA, enforced by nginx auth_request.
+  // Cookie support underpins the OIDC session (ADR-007). authRoutes is the
+  // whole app gateway (ADR-010): the OIDC routes plus a session-gated proxy
+  // that serves the SPA on the app hostname.
   await app.register(cookie);
   await app.register(healthRoutes);
   await app.register(authRoutes);

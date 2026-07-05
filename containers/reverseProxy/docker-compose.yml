@@ -1,0 +1,45 @@
+# Lives on the EC2 box at ~/containers/reverseProxy/docker-compose.yml.
+# The deploy pipeline sets IMAGE to the freshly-built tag and runs `up -d`.
+#
+# The public edge (ADR-009): the only container that publishes host ports.
+# nginx terminates TLS for all three hostnames and proxies to the backends
+# over simulation-net; certbot runs inside the same container.
+services:
+  proxy:
+    image: ${IMAGE:-ghcr.io/jbframe/big-equity/reverseproxy:latest}
+    container_name: reverseproxy
+    restart: unless-stopped
+    # Deliberately public — this is the edge. Everything else on the box is
+    # Docker-network-only behind it.
+    ports:
+      - "80:80"
+      - "443:443"
+    # Not secrets, just routing config — the same values Terraform used to
+    # template into the host nginx (infra/variables.tf keeps the domains for
+    # its outputs).
+    environment:
+      APP_DOMAIN: allin.makejohnacoffee.com
+      API_DOMAIN: api.makejohnacoffee.com
+      AUTH_DOMAIN: id.makejohnacoffee.com
+      CERTBOT_EMAIL: framejb@gmail.com
+    volumes:
+      # Host path, not a named volume: certificates survive container and
+      # image replacement, and a box migrated from the pre-ADR-009 setup
+      # keeps its existing Let's Encrypt certs with no reissue.
+      - /etc/letsencrypt:/etc/letsencrypt
+    networks:
+      - simulation-net
+    # nginx is tiny; the ceiling is certbot's Python runtime during the
+    # twice-daily renew pass.
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # Created by user_data at first boot and idempotently by deploy.yml.
+  simulation-net:
+    external: true

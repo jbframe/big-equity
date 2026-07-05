@@ -43,12 +43,15 @@ counts would want a real search engine — ADR-006.)
 ## Exposure — public at id.makejohnacoffee.com
 
 Auth flows need to be browser-reachable, so unlike simulationDB this is exposed.
-The container publishes **loopback-only** `127.0.0.1:9011`; nginx on the box
-terminates TLS for `https://id.makejohnacoffee.com` and proxies to it
-(ADR-001 pattern). Port 9011 is never reachable from the internet directly.
+The container publishes **no host ports**; the reverseProxy container
+([ADR-009](../../docs/adr/009-reverse-proxy-container.md)) terminates TLS for
+`https://id.makejohnacoffee.com` and reaches `fusionauth:9011` over
+`simulation-net` (ADR-001 pattern). Port 9011 is never reachable from the
+internet directly.
 
-Point the `id.makejohnacoffee.com` **DNS A record** at the Elastic IP before the
-box rebuilds, or certbot can't issue the certificate (it retries for ~20 min).
+Point the `id.makejohnacoffee.com` **DNS A record** at the Elastic IP —
+certbot (in the reverseProxy container) retries issuance every 30 s until DNS
+resolves to the box.
 
 ## Data & backups
 
@@ -66,7 +69,7 @@ The `t3.micro` box has 916 MiB — this is deliberately the tightest tenant on
 it (ADR-006: start small, grow if it hurts). FusionAuth's JVM heap is `512M`
 (`FUSIONAUTH_APP_MEMORY`); the container is capped at `mem_limit: 640m`, below
 heap+overhead, so overflow spills to the 1 GiB infra swapfile instead of
-starving Postgres (capped at 256m), nginx, and the host. Expect it to lean on
+starving Postgres (capped at 256m), the reverseProxy, and the host. Expect it to lean on
 swap in steady state. If login flows crawl or the container gets OOM-killed,
 the fix is `instance_type = "t3.small"` in `infra/variables.tf` (a box
 rebuild), not raising the cap.
@@ -75,7 +78,7 @@ rebuild), not raising the cap.
 
 ```sh
 docker logs -f fusionauth                 # boot + migration progress
-curl -fsS http://localhost:9011/api/status  # on the box: liveness JSON
+docker exec fusionauth curl -fsS http://localhost:9011/api/status  # liveness JSON (no host port since ADR-009)
 ```
 
 The admin UI is at `https://id.makejohnacoffee.com/admin`. First visit walks

@@ -26,11 +26,12 @@ resource "aws_security_group" "app" {
     cidr_blocks = var.ssh_open ? ["0.0.0.0/0"] : [var.my_ip_cidr]
   }
 
-  # 80 answers ACME challenges and redirects to 443; 443 is nginx TLS (ADR-001).
+  # 80 answers ACME challenges and redirects to 443; 443 is TLS at the
+  # reverseProxy container (ADR-001 pattern, containerized in ADR-009).
   dynamic "ingress" {
     for_each = var.open_web ? [80, 443] : []
     content {
-      description = ingress.value == 80 ? "HTTP (ACME challenges; redirects to HTTPS)" : "HTTPS (nginx TLS termination)"
+      description = ingress.value == 80 ? "HTTP (ACME challenges; redirects to HTTPS)" : "HTTPS (reverseProxy TLS termination)"
       from_port   = ingress.value
       to_port     = ingress.value
       protocol    = "tcp"
@@ -58,10 +59,6 @@ resource "aws_instance" "app" {
   iam_instance_profile = aws_iam_instance_profile.app.name
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    app_domain    = var.app_domain
-    api_domain    = var.api_domain
-    auth_domain   = var.auth_domain
-    certbot_email = var.certbot_email
     backup_bucket = aws_s3_bucket.db_backups.bucket
   })
 
