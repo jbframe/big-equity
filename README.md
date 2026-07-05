@@ -140,6 +140,8 @@ a bare `cmd`):
 ./cmd                    # list available commands
 ./cmd monitor            # live watch-style view (".sh" suffix optional); ctrl-c to exit
 ./cmd monitor --snap     # one-shot health snapshot
+./cmd db-access enable   # open 5432 to your current public IP
+./cmd db-access disable  # close 5432 when you're done
 ```
 
 Arguments after the command name pass through to the script, so
@@ -150,6 +152,7 @@ automatically.
 | Script | What it does |
 | --- | --- |
 | [`scripts/monitor.sh`](scripts/monitor.sh) | Health/CPU/mem/disk/network view of the EC2 host and its containers over SSH. Default is a live watch-style table (one row per container plus a `NODE` row) with net/disk as per-second rates; `--snap` prints a one-shot snapshot instead. Resolves the host from `$EC2_HOST` or `terraform output`. |
+| [`scripts/db-access.sh`](scripts/db-access.sh) | Toggle dev-only public access to simulationDB (ADR-005). `enable` detects your current public IP and dispatches the [db-access workflow](.github/workflows/db-access.yml) to open 5432 to it; `disable` closes it. Follows the run to completion via `gh run watch`. Requires the `gh` CLI. |
 
 ---
 
