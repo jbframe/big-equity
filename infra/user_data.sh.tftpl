@@ -57,8 +57,10 @@ fi
 
 # Both databases on the shared Postgres: the simulation app data (ADR-003) and
 # FusionAuth's own database (ADR-006). Each dumps to its own bucket prefix —
-# the instance role is write-only per prefix. fusionauth may not exist yet
-# (FusionAuth creates it on its first boot) — skipping it is not an error.
+# the instance role is write-only per prefix. Dumps run as $POSTGRES_USER, the
+# dbadmin superuser (ADR-008) — the only role that can reach both databases.
+# fusionauth may not exist yet on a box that predates ADR-008's first-boot
+# script — skipping it is not an error.
 for db in "$POSTGRES_DB" fusionauth; do
   if [ "$(docker exec simulationdb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
         "SELECT 1 FROM pg_database WHERE datname = '$db'")" != "1" ]; then

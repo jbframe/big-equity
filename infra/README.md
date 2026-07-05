@@ -183,7 +183,8 @@ gh variable set MY_IP_CIDR   --body "$(curl -s -4 ifconfig.me)/32"
 ```bash
 gh secret set EC2_SSH_KEY < ~/.ssh/ec2_deploy_key   # the PRIVATE key
 gh secret set GHCR_PAT    --body "<a read:packages PAT>"
-gh secret set SIMULATIONDB_PASSWORD   --body "<url-safe db password>"  # simulationDB (ADR-003)
+gh secret set DBADMIN_PASSWORD --body "<db superuser password>"        # Postgres cluster superuser (ADR-008)
+gh secret set SIMULATIONDB_PASSWORD   --body "<url-safe db password>"  # simulation manager role (ADR-003, ADR-008)
 gh secret set FUSIONAUTHDB_PASSWORD  --body "<fusionauth db password>" # FusionAuth runtime role (ADR-006)
 gh secret set FUSIONAUTH_CLIENT_SECRET --body "<poker_equity client secret>" # SPA login wall (ADR-007)
 gh secret set SESSION_SECRET --body "$(openssl rand -base64 32)"       # session-cookie signing key (ADR-007)
@@ -236,10 +237,13 @@ that needs no config.
 
 The one thing the pipeline can't supply is **real secrets**: `.env` is
 intentionally not in the repo. Two exceptions manage themselves: the pipeline
-*writes* `simulationDB`'s and `simulationAPI`'s `.env` on every deploy from
-the `SIMULATIONDB_PASSWORD` GitHub secret (ADR-003), and `fusionAuth`'s from
-`SIMULATIONDB_PASSWORD` + `FUSIONAUTHDB_PASSWORD` (ADR-006) — nothing to seed,
-and rotation is "update the secret + redeploy". For any other container that
+*writes* `simulationDB`'s `.env` from `DBADMIN_PASSWORD` +
+`SIMULATIONDB_PASSWORD` + `FUSIONAUTHDB_PASSWORD` (the three-role split,
+ADR-008), `simulationAPI`'s from `SIMULATIONDB_PASSWORD` (ADR-003), and
+`fusionAuth`'s from `DBADMIN_PASSWORD` + `FUSIONAUTHDB_PASSWORD` (ADR-006) —
+nothing to seed, and rotation is "update the secret + redeploy" (for the DB
+roles that also means the roles' passwords were set at first boot; see
+ADR-008). For any other container that
 needs environment values, place its `.env` on the box once:
 
 ```bash
