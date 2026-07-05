@@ -1,12 +1,10 @@
 # simulationAPI
 
-Fastify HTTP service ([ADR-002](../../docs/adr/002-fastify-backend-container.md))
-— a long-running container, unlike the batch simulators — with **two roles**,
-one per hostname:
+Fastify HTTP service — a long-running container, unlike the batch simulators
+— with **two roles**, one per hostname:
 
 1. **DB CRUD backend** (`api.makejohnacoffee.com`) — the CRUD layer in front
-   of the private simulationDB container
-   ([ADR-003](../../docs/adr/003-simulationdb-container.md)). Every route is
+   of the private simulationDB container. Every route is
    schema-first: request/response shapes are defined once in zod and give
    runtime validation plus inferred handler types via
    `fastify-type-provider-zod`. For the database routes those zod schemas are
@@ -16,10 +14,8 @@ one per hostname:
    subdomain, so CORS is enabled for that origin only.
 
 2. **App gateway** (`allin.makejohnacoffee.com`) — the login wall that guards
-   that front end ([ADR-007](../../docs/adr/007-fusionauth-login-wall.md),
-   [ADR-010](../../docs/adr/010-gateway-in-simulationapi.md)): `src/auth.ts`
-   runs the authorization-code flow against FusionAuth
-   ([ADR-006](../../docs/adr/006-fusionauth-container.md)), validates the
+   that front end: `src/auth.ts`
+   runs the authorization-code flow against FusionAuth, validates the
    id_token, issues a stateless signed session cookie, and proxies the whole
    `allin.…` hostname to the static SPA container — but only when that cookie
    is valid, so no anonymous request reaches the SPA. FusionAuth stays the
@@ -63,8 +59,7 @@ edit it, run `npx drizzle-kit generate`, and commit the SQL it emits under
 reviewable in the PR, fixable by hand.
 
 To poke at the production DB from your machine, `npm run db:enable` opens the
-dev-only 5432 toggle for your current IP via the `db-access` workflow
-([ADR-005](../../docs/adr/005-simulationdb-dev-access-toggle.md));
+dev-only 5432 toggle for your current IP via the `db-access` workflow;
 `npm run db:disable` closes it again.
 
 ## Routes
@@ -76,14 +71,13 @@ dev-only 5432 toggle for your current IP via the `db-access` workflow
 | `GET /auth/callback` † | `302` to the app    | Code exchange + id_token check, sets session   |
 | `GET /auth/me` †      | identity or `401`   | Who's signed in (for the SPA)                  |
 | `GET /auth/logout` †  | `302` to FusionAuth | Clear session, end the IdP session             |
-| any other path †      | SPA proxy or `302`  | The login wall (ADR-010): valid session → proxied to `simulationweb:80`; anonymous → `/auth/login` |
+| any other path †      | SPA proxy or `302`  | The login wall: valid session → proxied to `simulationweb:80`; anonymous → `/auth/login` |
 | `POST /results`       | `201` created row  | Store a batch simulator run                    |
 | `GET /results`        | `{results: [...]}` | List runs, newest first (`limit`/`offset`)     |
 | `GET /results/:id`    | row or `404`       | Fetch one run                                  |
 | `DELETE /results/:id` | `204` or `404`     | Remove a run                                   |
 
-† Gateway routes ([ADR-007](../../docs/adr/007-fusionauth-login-wall.md),
-[ADR-010](../../docs/adr/010-gateway-in-simulationapi.md)): registered with a
+† Gateway routes: registered with a
 Fastify `host` constraint for `allin.makejohnacoffee.com` — on the api
 hostname they don't exist (404). They're same-origin with the SPA, so they
 need no CORS; the results API stays CORS-restricted to the web origin.
@@ -97,7 +91,7 @@ update route.
 | ------------------- | ----------------------------------------------------- |
 | `src/app.ts`        | App factory: zod compilers, CORS, cookie, route registration |
 | `src/health.ts`     | `GET /health` route + zod schema                      |
-| `src/auth.ts`       | App gateway (ADR-007/010): OIDC routes, session cookie, SPA login-wall proxy |
+| `src/auth.ts`       | App gateway: OIDC routes, session cookie, SPA login-wall proxy |
 | `src/results.ts`    | CRUD routes; zod schemas derived from the table       |
 | `src/db/schema.ts`  | Drizzle table definitions + shared tally schemas      |
 | `src/db/client.ts`  | pg pool + drizzle instance (`DATABASE_URL`)           |
@@ -162,14 +156,12 @@ graph TB
 Ships through the standard pipeline: `deploy.yml` auto-discovers the
 `Dockerfile`, builds a multi-stage image (digest-pinned `node:24-alpine`),
 pushes to GHCR, and runs `docker compose up -d` on the box. The container has
-no host ports — the reverseProxy container
-([ADR-009](../../docs/adr/009-reverse-proxy-container.md)) is the only public
-path in, reaching `simulationapi:3003` over `simulation-net`, per the
-[ADR-001](../../docs/adr/001-expose-simulationweb.md) pattern. Public exposure
+no host ports — the reverseProxy container is the only public path in,
+reaching `simulationapi:3003` over `simulation-net`. Public exposure
 at `https://api.makejohnacoffee.com` comes with its own Let's Encrypt cert
 plus per-IP rate limiting at the proxy (10 r/s, burst 20, 429 on excess). The
 `allin.…` vhost also lands here wholesale — this container is the app gateway
-(ADR-010) and forwards it to the SPA behind the session check.
+and forwards it to the SPA behind the session check.
 
 The deploy pipeline also writes the OIDC config into `.env`: `AUTH_ISSUER`,
 `AUTH_CLIENT_ID`, `AUTH_REDIRECT_URI`, `AUTH_APP_URL`, plus the two secrets
