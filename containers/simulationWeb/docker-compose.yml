@@ -3,11 +3,20 @@
 services:
   app:
     image: ${IMAGE:-ghcr.io/jbframe/big-equity/simulationweb:latest}
+    # Stable DNS name simulationAPI's gateway proxy targets on simulation-net
+    # (ADR-010) — the edge never talks to this container directly.
+    container_name: simulationweb
     # A long-running web server, unlike the batch-job sims: keep it up across
     # reboots and crashes.
     restart: unless-stopped
-    ports:
-      # Loopback-only: nginx on the host terminates TLS for
-      # https://allin.makejohnacoffee.com and proxies here (ADR-001).
-      # Port 8080 is never reachable from the internet directly.
-      - "127.0.0.1:8080:80"
+    # No host ports: requests to https://allin.makejohnacoffee.com pass
+    # through the reverseProxy edge (ADR-009) and then simulationAPI's login
+    # wall (ADR-010) before reaching this container over simulation-net.
+    # Nothing here is reachable from the internet directly.
+    networks:
+      - simulation-net
+
+networks:
+  # Created by user_data at first boot and idempotently by deploy.yml.
+  simulation-net:
+    external: true

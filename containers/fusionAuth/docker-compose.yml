@@ -6,14 +6,13 @@
 services:
   app:
     image: fusionauth/fusionauth-app:1.68.0
-    # Stable name for logs / `docker exec`, mirroring simulationdb.
+    # Stable name for logs / `docker exec`, and the DNS name the reverseProxy
+    # container targets on simulation-net (ADR-009).
     container_name: fusionauth
     restart: unless-stopped
-    # Loopback-only: nginx on the box terminates TLS for
-    # https://id.makejohnacoffee.com and proxies here (ADR-001 pattern,
-    # ADR-006). Port 9011 is never reachable from the internet directly.
-    ports:
-      - "127.0.0.1:9011:9011"
+    # No host ports: the reverseProxy container terminates TLS for
+    # https://id.makejohnacoffee.com and reaches port 9011 over simulation-net
+    # (ADR-009). Nothing here is reachable from the internet directly.
     # DB creds, SEARCH_TYPE=database (OpenSearch off), and runtime config,
     # written by the deploy pipeline from GitHub secrets (ADR-006).
     env_file: .env

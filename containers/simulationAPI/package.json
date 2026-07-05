@@ -13,11 +13,14 @@
     "db:disable": "gh workflow run db-access.yml -f action=disable"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
+    "@fastify/http-proxy": "^11.5.0",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.8.3",
     "fastify": "^5.9.0",
     "fastify-type-provider-zod": "^7.0.0",
+    "jose": "^6.2.3",
     "pg": "^8.22.0",
     "zod": "^4.4.3"
   },

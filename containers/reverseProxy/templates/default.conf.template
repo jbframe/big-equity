@@ -1,0 +1,115 @@
+# Rendered by the nginx image's entrypoint: ${APP_DOMAIN}, ${API_DOMAIN} and
+# ${AUTH_DOMAIN} are substituted from the container environment (set in
+# docker-compose.yml). nginx runtime variables ($host, $request_uri, ...) are
+# left alone — envsubst only touches names that exist in the environment.
+
+# Per-client-IP rate limiting, enforced at the edge so a flood never reaches
+# the containers. Each 10m zone tracks ~160k addresses. Requests over the
+# burst get 429 (the 503 default reads as an outage).
+limit_req_zone $binary_remote_addr zone=web_perip:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=api_perip:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=auth_perip:10m rate=30r/s;
+limit_req_status 429;
+
+# Resolve backend names through Docker's embedded DNS at request time (the
+# `set $upstream_*` variables below force that) instead of at config load —
+# otherwise nginx refuses to start unless every backend container already
+# exists, and the proxy must boot independently of them (fresh box, backend
+# redeploys). A missing backend is a 502 until it appears, not a crash loop.
+resolver 127.0.0.11 valid=30s ipv6=off;
+
+# Shared TLS settings (Mozilla "intermediate"-ish; ECDHE only, so no dhparam).
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets off;
+
+# Catch-all for requests that match no hostname (bare IP, scanners): answer
+# the container healthcheck, then drop the connection.
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location = /healthz {
+        return 200 "ok\n";
+    }
+    location / {
+        return 444;
+    }
+}
+
+# Port 80 for the real hostnames exists for two things only: ACME HTTP-01
+# challenges and the redirect to HTTPS.
+server {
+    listen 80;
+    server_name ${APP_DOMAIN} ${API_DOMAIN} ${AUTH_DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# The app hostname routes to simulationAPI, not the SPA container:
+# simulationAPI is the app gateway (ADR-010) — it enforces the FusionAuth
+# login wall (ADR-007) in-process and proxies valid sessions through to
+# simulationweb itself. The edge stays auth-agnostic.
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${APP_DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${APP_DOMAIN}/privkey.pem;
+
+    set $upstream_api http://simulationapi:3003;
+
+    location / {
+        limit_req zone=web_perip burst=60 nodelay;
+        proxy_pass $upstream_api;
+        include /etc/nginx/proxy_headers.conf;
+    }
+}
+
+# simulationAPI serves its data routes on this hostname; the gateway routes
+# above are host-constrained inside the app and 404 here (ADR-010).
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${API_DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+
+    set $upstream_api http://simulationapi:3003;
+
+    location / {
+        limit_req zone=api_perip burst=20 nodelay;
+        proxy_pass $upstream_api;
+        include /etc/nginx/proxy_headers.conf;
+    }
+}
+
+# FusionAuth (ADR-006). client_max_body_size is bumped from nginx's 1m default
+# so admin uploads (themes, config imports) aren't truncated.
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${AUTH_DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${AUTH_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${AUTH_DOMAIN}/privkey.pem;
+
+    set $upstream_auth http://fusionauth:9011;
+
+    client_max_body_size 64m;
+
+    location / {
+        limit_req zone=auth_perip burst=60 nodelay;
+        proxy_pass $upstream_auth;
+        include /etc/nginx/proxy_headers.conf;
+    }
+}

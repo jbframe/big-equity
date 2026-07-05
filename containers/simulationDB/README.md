@@ -13,22 +13,43 @@ Temporary developer access is a manual, dev-only toggle
 ([ADR-005](../../docs/adr/005-simulationdb-dev-access-toggle.md)), not a
 standing port.
 
+## Roles
+
+One Postgres, three roles
+([ADR-008](../../docs/adr/008-separate-db-roles.md)), created at first boot
+by [`initdb/01-roles.sh`](initdb/01-roles.sh) — the image runs it only when
+initializing an **empty** data volume, so the model ships via box rebuild,
+not in-place migration:
+
+| Role | Privileges | Used by |
+| --- | --- | --- |
+| `dbadmin` | superuser (initdb's `POSTGRES_USER`) | backup cron, FusionAuth schema create/upgrade |
+| `simulation` | owns database `simulation` | simulationAPI |
+| `fusionauth` | owns database `fusionauth` | FusionAuth runtime |
+
+`CONNECT` is revoked from `PUBLIC` on every database, so each manager role
+can reach **only its own** database; only the superuser sees both.
+
 ## Configuration
 
 Credentials live in `.env` next to the compose file on the box —
-**written by the deploy pipeline on every deploy** from the
-`SIMULATIONDB_PASSWORD` GitHub secret (rotation = update the secret +
-redeploy):
+**written by the deploy pipeline on every deploy** from GitHub secrets
+(rotation = update the secret + redeploy — but note the passwords Postgres
+*checks* were set at first boot; rotating for real means `ALTER ROLE` or a
+rebuild, ADR-008):
 
 | Variable | Value |
 | --- | --- |
-| `POSTGRES_USER` | `simulation` |
-| `POSTGRES_PASSWORD` | from the `SIMULATIONDB_PASSWORD` secret |
+| `POSTGRES_USER` | `dbadmin` — the cluster superuser (ADR-008) |
+| `POSTGRES_PASSWORD` | from the `DBADMIN_PASSWORD` secret |
 | `POSTGRES_DB` | `simulation` |
+| `SIMULATION_ROLE_PASSWORD` | from `SIMULATIONDB_PASSWORD` — for `initdb/01-roles.sh` |
+| `FUSIONAUTH_ROLE_PASSWORD` | from `FUSIONAUTHDB_PASSWORD` — for `initdb/01-roles.sh` |
 
 The same deploy writes simulationAPI's `DATABASE_URL`
-(`postgresql://simulation:…@simulationdb:5432/simulation`). Keep the secret
-URL-safe (alphanumeric) — it's interpolated into that URL unescaped.
+(`postgresql://simulation:…@simulationdb:5432/simulation`). Keep the secrets
+URL-safe (alphanumeric) — `SIMULATIONDB_PASSWORD` is interpolated into that
+URL unescaped.
 
 ## Memory guardrails
 
@@ -52,10 +73,12 @@ layer of defense against the OOM killer.
 
 ## Poking at it
 
-No host port, so inspection means exec'ing into the container on the box:
+No host port, so inspection means exec'ing into the container on the box
+(local socket connections are trusted, so no password prompt):
 
 ```sh
-docker exec -it simulationdb psql -U simulation simulation
+docker exec -it simulationdb psql -U simulation simulation   # app data
+docker exec -it simulationdb psql -U dbadmin simulation      # superuser
 ```
 
 ## Deployment

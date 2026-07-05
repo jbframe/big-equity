@@ -23,6 +23,10 @@ services:
       # (/var/lib/postgresql/18/docker), so mount /var/lib/postgresql — the
       # pre-18 path (.../data) silently leaves data outside the volume.
       - simulationdb-data:/var/lib/postgresql
+      # First-boot role separation (ADR-008): creates the simulation and
+      # fusionauth manager roles + databases. The image only runs these
+      # scripts when initializing an empty data volume.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     networks:
       - simulation-net
     healthcheck:

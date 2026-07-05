@@ -1,9 +1,9 @@
 #!/bin/bash
 set -eux
 
-# Rendered by Terraform's templatefile(): $${app_domain} and $${certbot_email}
-# are substituted at plan time. Shell expansions like $${var} must be escaped
-# as double-dollar in this file.
+# Rendered by Terraform's templatefile(): $${backup_bucket} is substituted at
+# plan time. Shell expansions like $${var} must be escaped as double-dollar in
+# this file.
 
 # --- Docker engine ---
 dnf update -y
@@ -57,8 +57,10 @@ fi
 
 # Both databases on the shared Postgres: the simulation app data (ADR-003) and
 # FusionAuth's own database (ADR-006). Each dumps to its own bucket prefix —
-# the instance role is write-only per prefix. fusionauth may not exist yet
-# (FusionAuth creates it on its first boot) — skipping it is not an error.
+# the instance role is write-only per prefix. Dumps run as $POSTGRES_USER, the
+# dbadmin superuser (ADR-008) — the only role that can reach both databases.
+# fusionauth may not exist yet on a box that predates ADR-008's first-boot
+# script — skipping it is not an error.
 for db in "$POSTGRES_DB" fusionauth; do
   if [ "$(docker exec simulationdb psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
         "SELECT 1 FROM pg_database WHERE datname = '$db'")" != "1" ]; then
@@ -92,102 +94,9 @@ sshd -t && systemctl restart sshd
 mkdir -p /home/ec2-user/containers
 chown ec2-user:ec2-user /home/ec2-user/containers
 
-# --- Nginx reverse proxy + Let's Encrypt (ADR-001) ---
-# simulationWeb (127.0.0.1:8080) and simulationAPI (127.0.0.1:3003) bind to
-# loopback only; nginx terminates TLS on 443 and routes by hostname, so
-# exposing a future container is one more server block on its own subdomain.
-dnf install -y nginx certbot python3-certbot-nginx
-
-# Per-client-IP rate limiting, enforced at the proxy so a flood never reaches
-# the containers. Each 10m zone tracks ~160k addresses. limit_req is applied
-# per vhost below; requests over the burst get 429 (default would be 503,
-# which reads as an outage).
-cat >/etc/nginx/conf.d/00-ratelimit.conf <<'EOF'
-limit_req_zone $binary_remote_addr zone=web_perip:10m rate=30r/s;
-limit_req_zone $binary_remote_addr zone=api_perip:10m rate=10r/s;
-limit_req_zone $binary_remote_addr zone=auth_perip:10m rate=30r/s;
-limit_req_status 429;
-EOF
-
-# HTTP-only vhosts to start. certbot --nginx rewrites them below: adds the 443
-# TLS server blocks and the 80 -> 443 redirects.
-cat >/etc/nginx/conf.d/${app_domain}.conf <<'EOF'
-server {
-    listen 80;
-    server_name ${app_domain};
-
-    location / {
-        limit_req zone=web_perip burst=60 nodelay;
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-
-cat >/etc/nginx/conf.d/${api_domain}.conf <<'EOF'
-server {
-    listen 80;
-    server_name ${api_domain};
-
-    location / {
-        limit_req zone=api_perip burst=20 nodelay;
-        proxy_pass http://127.0.0.1:3003;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-
-# FusionAuth (ADR-006): loopback container on :9011, exposed on its own
-# subdomain. client_max_body_size is bumped from nginx's 1m default so admin
-# uploads (themes, config imports) aren't truncated.
-cat >/etc/nginx/conf.d/${auth_domain}.conf <<'EOF'
-server {
-    listen 80;
-    server_name ${auth_domain};
-
-    client_max_body_size 64m;
-
-    location / {
-        limit_req zone=auth_perip burst=60 nodelay;
-        proxy_pass http://127.0.0.1:9011;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-nginx -t
-systemctl enable --now nginx
-
-# Reload nginx whenever certbot deploys a renewed certificate.
-mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-cat >/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh <<'EOF'
-#!/bin/bash
-systemctl reload nginx
-EOF
-chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
-
-# One certificate per subdomain, so each can be renewed/revoked independently.
-# At first boot the Elastic IP (where DNS points) may not be attached yet, so
-# the HTTP-01 challenge can land on the wrong box — retry until the EIP is on
-# (usually the first or second attempt succeeds).
-for domain in "${app_domain}" "${api_domain}" "${auth_domain}"; do
-  for attempt in $(seq 1 40); do
-    if certbot --nginx -d "$domain" --non-interactive --agree-tos \
-         -m "${certbot_email}" --redirect; then
-      break
-    fi
-    echo "certbot attempt $attempt for $domain failed; retrying in 30s"
-    sleep 30
-  done
-done
-
-# The certbot RPM ships a systemd timer that runs `certbot renew` twice a day.
-systemctl enable --now certbot-renew.timer
+# --- TLS certificate storage (ADR-009) ---
+# The reverseProxy container (nginx + certbot, deployed like any other
+# container) bind-mounts this dir, so certificates survive container and
+# image replacement — and a box rebuild starts it empty, ready for reissue.
+# Nothing else host-side: no nginx or certbot packages since ADR-009.
+mkdir -p /etc/letsencrypt

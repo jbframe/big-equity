@@ -80,19 +80,41 @@ jobs:
           target: ~/containers/${{ matrix.container.name }}
           strip_components: 2
 
+      # simulationDB also ships its first-boot role script (ADR-008). The
+      # postgres image only executes it when initializing an empty data
+      # volume, so re-syncing it on every deploy is harmless.
+      - name: Sync initdb scripts to box
+        if: matrix.container.name == 'simulationDB'
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: containers/simulationDB/initdb/*
+          target: ~/containers/simulationDB/initdb
+          strip_components: 3
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           IMAGE: ${{ matrix.container.build && format('{0}:{1}', steps.vars.outputs.image, github.sha) || '' }}
           CONTAINER: ${{ matrix.container.name }}
           BUILD: ${{ matrix.container.build }}
+          # Cluster superuser (ADR-008): initdb, backups, and FusionAuth
+          # schema upgrades. App containers use the per-database manager
+          # roles below, never this.
+          DBADMIN_PASSWORD: ${{ secrets.DBADMIN_PASSWORD }}
           SIMULATIONDB_PASSWORD: ${{ secrets.SIMULATIONDB_PASSWORD }}
           FUSIONAUTHDB_PASSWORD: ${{ secrets.FUSIONAUTHDB_PASSWORD }}
+          # simulationAPI's OIDC relying-party secrets (ADR-007): the
+          # poker_equity client secret and the session-cookie signing key.
+          FUSIONAUTH_CLIENT_SECRET: ${{ secrets.FUSIONAUTH_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE,CONTAINER,BUILD,SIMULATIONDB_PASSWORD,FUSIONAUTHDB_PASSWORD
+          envs: IMAGE,CONTAINER,BUILD,DBADMIN_PASSWORD,SIMULATIONDB_PASSWORD,FUSIONAUTHDB_PASSWORD,FUSIONAUTH_CLIENT_SECRET,SESSION_SECRET
           script: |
             set -e
             # Private path between simulationAPI and simulationDB (ADR-003).
@@ -105,38 +127,63 @@ jobs:
             # Secret-derived .env files, rewritten on every deploy so a
             # password rotation is just "update the secret + redeploy"
             # (ADR-003). Other containers keep their hand-seeded .env.
-            if [ "$CONTAINER" = "simulationDB" ] || [ "$CONTAINER" = "simulationAPI" ]; then
+            # simulationDB seeds all three roles (ADR-008): the dbadmin
+            # superuser initdb creates, plus the per-database manager
+            # passwords its first-boot script (initdb/01-roles.sh) needs.
+            if [ "$CONTAINER" = "simulationDB" ]; then
+              if [ -z "$DBADMIN_PASSWORD" ] || [ -z "$SIMULATIONDB_PASSWORD" ] || [ -z "$FUSIONAUTHDB_PASSWORD" ]; then
+                echo "DBADMIN_PASSWORD, SIMULATIONDB_PASSWORD and FUSIONAUTHDB_PASSWORD secrets must be set" >&2
+                exit 1
+              fi
+            fi
+            if [ "$CONTAINER" = "simulationAPI" ]; then
               if [ -z "$SIMULATIONDB_PASSWORD" ]; then
                 echo "SIMULATIONDB_PASSWORD secret is not set" >&2
+                exit 1
+              fi
+              # simulationAPI is also the OIDC login wall for the SPA
+              # (ADR-007), so it needs the FusionAuth client secret and a
+              # session key.
+              if [ -z "$FUSIONAUTH_CLIENT_SECRET" ] || [ -z "$SESSION_SECRET" ]; then
+                echo "FUSIONAUTH_CLIENT_SECRET and SESSION_SECRET secrets must be set" >&2
                 exit 1
               fi
             fi
             if [ "$CONTAINER" = "simulationDB" ]; then
               cat > .env <<EOF
-            POSTGRES_USER=simulation
-            POSTGRES_PASSWORD=$SIMULATIONDB_PASSWORD
+            POSTGRES_USER=dbadmin
+            POSTGRES_PASSWORD=$DBADMIN_PASSWORD
             POSTGRES_DB=simulation
+            SIMULATION_ROLE_PASSWORD=$SIMULATIONDB_PASSWORD
+            FUSIONAUTH_ROLE_PASSWORD=$FUSIONAUTHDB_PASSWORD
             EOF
             fi
             if [ "$CONTAINER" = "simulationAPI" ]; then
               cat > .env <<EOF
             DATABASE_URL=postgresql://simulation:$SIMULATIONDB_PASSWORD@simulationdb:5432/simulation
+            AUTH_ISSUER=https://id.makejohnacoffee.com
+            AUTH_CLIENT_ID=c37d57fd-f64d-42fc-bf27-048d658009ca
+            AUTH_CLIENT_SECRET=$FUSIONAUTH_CLIENT_SECRET
+            AUTH_REDIRECT_URI=https://allin.makejohnacoffee.com/auth/callback
+            AUTH_APP_URL=https://allin.makejohnacoffee.com
+            SESSION_SECRET=$SESSION_SECRET
             EOF
             fi
 
             # FusionAuth (ADR-006): reuses simulationDB, no bundled Postgres.
-            # ROOT_* are the simulationDB superuser (creates the fusionauth db +
-            # role on first boot in silent mode); USERNAME/PASSWORD are its own
-            # runtime role. SEARCH_TYPE=database keeps OpenSearch off.
+            # ROOT_* are the dbadmin superuser (ADR-008) — used only to create
+            # and upgrade the schema; USERNAME/PASSWORD are its own runtime
+            # role, fenced into the fusionauth database by simulationDB's
+            # first-boot script. SEARCH_TYPE=database keeps OpenSearch off.
             if [ "$CONTAINER" = "fusionAuth" ]; then
-              if [ -z "$SIMULATIONDB_PASSWORD" ] || [ -z "$FUSIONAUTHDB_PASSWORD" ]; then
-                echo "SIMULATIONDB_PASSWORD and FUSIONAUTHDB_PASSWORD secrets must be set" >&2
+              if [ -z "$DBADMIN_PASSWORD" ] || [ -z "$FUSIONAUTHDB_PASSWORD" ]; then
+                echo "DBADMIN_PASSWORD and FUSIONAUTHDB_PASSWORD secrets must be set" >&2
                 exit 1
               fi
               cat > .env <<EOF
             DATABASE_URL=jdbc:postgresql://simulationdb:5432/fusionauth
-            DATABASE_ROOT_USERNAME=simulation
-            DATABASE_ROOT_PASSWORD=$SIMULATIONDB_PASSWORD
+            DATABASE_ROOT_USERNAME=dbadmin
+            DATABASE_ROOT_PASSWORD=$DBADMIN_PASSWORD
             DATABASE_USERNAME=fusionauth
             DATABASE_PASSWORD=$FUSIONAUTHDB_PASSWORD
             SEARCH_TYPE=database

@@ -3,12 +3,14 @@
 services:
   app:
     image: ${IMAGE:-ghcr.io/jbframe/big-equity/simulationapi:latest}
+    # Stable DNS name the reverseProxy container targets on simulation-net
+    # (ADR-009) — proxy_pass http://simulationapi:3003.
+    container_name: simulationapi
     # Long-running HTTP service, unlike the batch simulators.
     restart: unless-stopped
-    # Loopback-only: nginx on the box (ADR-001 pattern) is the sole public
-    # path in; the container never listens on a public interface.
-    ports:
-      - "127.0.0.1:3003:3003"
+    # No host ports: the reverseProxy container (ADR-009) is the sole public
+    # path in, over simulation-net; the container never listens on a host
+    # interface.
     # DATABASE_URL, written by the deploy pipeline from the
     # SIMULATIONDB_PASSWORD secret (ADR-003).
     env_file: .env
