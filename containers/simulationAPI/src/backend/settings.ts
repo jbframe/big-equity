@@ -1,9 +1,10 @@
 import { eq, sql } from "drizzle-orm";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { db } from "./db/client.js";
 import { gameTypeSchema, userSettings } from "./db/schema.js";
+import { userSub } from "./identity.js";
 
 // The wire shape is just the preferences themselves — the row's key is the
 // caller's own identity (x-user-sub, filled by the auth guard), so it never
@@ -11,15 +12,6 @@ import { gameTypeSchema, userSettings } from "./db/schema.js";
 export const settingsSchema = z.object({ gameType: gameTypeSchema });
 
 const DEFAULT_SETTINGS: z.infer<typeof settingsSchema> = { gameType: "big-o" };
-
-function userSub(req: FastifyRequest): string {
-  const sub = req.headers["x-user-sub"];
-  if (typeof sub !== "string" || sub === "") {
-    // The auth guard always fills this; reaching here means a wiring bug.
-    throw new Error("missing x-user-sub header behind the auth guard");
-  }
-  return sub;
-}
 
 // Per-user settings: a GET that always answers (defaults before first save)
 // and an idempotent PUT upsert. No DELETE — resetting is PUTting defaults.

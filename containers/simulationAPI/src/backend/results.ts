@@ -1,9 +1,10 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { db } from "./db/client.js";
+import { userSub } from "./identity.js";
 import {
   highTallySchema,
   lowTallySchema,
@@ -34,14 +35,22 @@ const refinements = {
   noScoop: noScoopSchema,
 };
 
-export const resultSchema = createSelectSchema(simulationResults, refinements);
+// `ownerSub` is server-side bookkeeping, not part of the wire contract: it's
+// always the caller's own id, so echoing it back tells the client nothing and
+// keeps the response identical to what the SPA already expects.
+export const resultSchema = createSelectSchema(
+  simulationResults,
+  refinements,
+).omit({ ownerSub: true });
 
 // The identity `id` is already unsettable in the derived insert schema;
-// createdAt is the database's to fill.
+// createdAt is the database's to fill, and ownerSub comes from the session
+// (see the POST handler) — never the request body, so a client can't create a
+// result owned by someone else.
 export const createResultSchema = createInsertSchema(
   simulationResults,
   refinements,
-).omit({ createdAt: true });
+).omit({ createdAt: true, ownerSub: true });
 
 const idParamsSchema = z.object({ id: z.coerce.number().int().positive() });
 
@@ -67,7 +76,7 @@ export async function resultsRoutes(app: FastifyInstance) {
     handler: async (req, reply) => {
       const [row] = await db
         .insert(simulationResults)
-        .values(req.body)
+        .values({ ...req.body, ownerSub: userSub(req) })
         .returning();
       if (!row) {
         throw new Error("insert returned no row");
@@ -87,6 +96,7 @@ export async function resultsRoutes(app: FastifyInstance) {
       const results = await db
         .select()
         .from(simulationResults)
+        .where(eq(simulationResults.ownerSub, userSub(req)))
         .orderBy(desc(simulationResults.createdAt), desc(simulationResults.id))
         .limit(req.query.limit)
         .offset(req.query.offset);
@@ -105,7 +115,14 @@ export async function resultsRoutes(app: FastifyInstance) {
       const [row] = await db
         .select()
         .from(simulationResults)
-        .where(eq(simulationResults.id, req.params.id));
+        .where(
+          and(
+            eq(simulationResults.id, req.params.id),
+            eq(simulationResults.ownerSub, userSub(req)),
+          ),
+        );
+      // Someone else's result is indistinguishable from one that doesn't
+      // exist: a 404 either way, so ownership can't be probed by id.
       if (!row) {
         return reply.code(404).send({ message: "result not found" });
       }
@@ -123,7 +140,12 @@ export async function resultsRoutes(app: FastifyInstance) {
     handler: async (req, reply) => {
       const deleted = await db
         .delete(simulationResults)
-        .where(eq(simulationResults.id, req.params.id))
+        .where(
+          and(
+            eq(simulationResults.id, req.params.id),
+            eq(simulationResults.ownerSub, userSub(req)),
+          ),
+        )
         .returning({ id: simulationResults.id });
       if (deleted.length === 0) {
         return reply.code(404).send({ message: "result not found" });

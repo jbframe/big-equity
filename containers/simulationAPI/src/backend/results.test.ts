@@ -25,6 +25,11 @@ const payload = {
 const token = await __test.signSession({ sub: "user-1", email: "u1@b.com" });
 const session = { cookies: { [__test.SESSION_COOKIE]: token } };
 
+// A second, unrelated user — used to prove results are scoped to their owner
+// and invisible to everyone else.
+const otherToken = await __test.signSession({ sub: "user-2", email: "u2@b.com" });
+const otherSession = { cookies: { [__test.SESSION_COOKIE]: otherToken } };
+
 test("results routes refuse an anonymous request", async () => {
   const app = await buildApp();
   const calls: { method: "GET" | "POST" | "DELETE"; url: string }[] = [
@@ -146,6 +151,45 @@ test(
     });
     assert.equal(listed.statusCode, 200);
     assert.ok(listed.json().results.some((r: { id: number }) => r.id === id));
+
+    // A different user must not see, fetch, or delete user-1's result: it's
+    // scoped to its owner, so every route treats it as if it doesn't exist.
+    const otherList = await app.inject({
+      method: "GET",
+      url: "/results?limit=100",
+      ...otherSession,
+    });
+    assert.equal(otherList.statusCode, 200);
+    assert.ok(
+      !otherList.json().results.some((r: { id: number }) => r.id === id),
+      "user-2 should not see user-1's result in the list",
+    );
+
+    const otherFetch = await app.inject({
+      method: "GET",
+      url: `/results/${id}`,
+      ...otherSession,
+    });
+    assert.equal(otherFetch.statusCode, 404, "user-2 cannot fetch user-1's result");
+
+    const otherDelete = await app.inject({
+      method: "DELETE",
+      url: `/results/${id}`,
+      ...otherSession,
+    });
+    assert.equal(
+      otherDelete.statusCode,
+      404,
+      "user-2 cannot delete user-1's result",
+    );
+
+    // ...and after that failed delete, the result is still there for its owner.
+    const stillThere = await app.inject({
+      method: "GET",
+      url: `/results/${id}`,
+      ...session,
+    });
+    assert.equal(stillThere.statusCode, 200);
 
     const deleted = await app.inject({
       method: "DELETE",
