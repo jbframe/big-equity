@@ -7,4 +7,58 @@
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.app {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.app form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.app label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 600;
+}
+
+.app input {
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+  font-weight: 400;
+}
+
+.app button {
+  justify-self: start;
+  padding: 0.5rem 1rem;
+  font: inherit;
+}
+
+.hint {
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.error {
+  color: #b00020;
+  font-weight: 600;
+}
+
+.results {
+  margin-top: 1.5rem;
+  border-top: 1px solid #ddd;
+  padding-top: 1rem;
+}
+
+.results h3 {
+  margin-bottom: 0.25rem;
+}
+
+.results h3 + p {
+  margin-top: 0;
 }
