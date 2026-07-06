@@ -1,19 +1,21 @@
-import cookie from "@fastify/cookie";
-import cors from "@fastify/cors";
 import Fastify from "fastify";
 import {
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
-import { authRoutes } from "./auth.js";
-import { healthRoutes } from "./health.js";
-import { resultsRoutes } from "./results.js";
+import { backend } from "./backend/index.js";
+import { requireSession } from "./gateway/auth.js";
+import { gateway } from "./gateway/index.js";
 
-// The browser front end lives on a different subdomain (ADR-002), so every
-// response needs CORS headers for this origin.
-export const WEB_ORIGIN = "https://allin.makejohnacoffee.com";
-
+// Composition root and nothing else. The container's two roles — the app
+// gateway for simulationWeb (allin.…) and the gateway for the API (api.…,
+// the CRUD layer in front of simulationDB) — live in src/gateway/ and
+// src/backend/, each registering its own plugins and routes, so splitting
+// them into separate containers later is a matter of giving each module its
+// own entry point. The one piece of cross-role wiring happens here: the
+// backend's CRUD routes run behind the gateway's session check, which
+// forwards the signed-in user as x-user-* headers.
 export async function buildApp() {
   const app = Fastify({
     logger: true,
@@ -24,14 +26,8 @@ export async function buildApp() {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  await app.register(cors, { origin: [WEB_ORIGIN] });
-  // Cookie support underpins the OIDC session (ADR-007). authRoutes is the
-  // whole app gateway (ADR-010): the OIDC routes plus a session-gated proxy
-  // that serves the SPA on the app hostname.
-  await app.register(cookie);
-  await app.register(healthRoutes);
-  await app.register(authRoutes);
-  await app.register(resultsRoutes);
+  await app.register(gateway);
+  await app.register(backend, { authenticate: requireSession });
 
   return app;
 }

@@ -37,6 +37,13 @@ const APP_URL = process.env["AUTH_APP_URL"] ?? "https://allin.makejohnacoffee.co
 // Host header the gateway routes belong to — the find-my-way `host`
 // constraint matches it exactly.
 const APP_HOST = new URL(APP_URL).host;
+// The backend CRUD routes on the api hostname check the same session (see
+// requireSession below), so the cookie is scoped to the parent domain
+// (makejohnacoffee.com) instead of host-only — the browser then sends it to
+// every subdomain, and SameSite=Lax keeps that to same-site requests.
+const COOKIE_DOMAIN =
+  process.env["AUTH_COOKIE_DOMAIN"] ??
+  new URL(APP_URL).hostname.replace(/^[^.]+\./, "");
 // HS256 key for our own session + transaction cookies. The dev fallback keeps
 // local `npm test` working; the deploy pipeline writes a real 32-byte secret.
 const SESSION_SECRET = new TextEncoder().encode(
@@ -61,6 +68,7 @@ const cookieBase = {
   secure: true,
   sameSite: "lax" as const,
   path: "/",
+  domain: COOKIE_DOMAIN,
 };
 
 interface SessionClaims extends JWTPayload {
@@ -100,6 +108,26 @@ async function readSession(
   } catch {
     return null;
   }
+}
+
+// The auth funnel for the backend role: the gateway verifies the session
+// cookie and forwards the caller's identity to the CRUD routes as x-user-*
+// headers; an anonymous request is refused before any handler (or the
+// database) is touched. The identity headers are deleted from the incoming
+// request first so a caller can never spoof one — this function is their
+// only writer. The composition root installs it in front of the backend
+// routes; when the two roles split into separate containers (ADR-011) it
+// becomes the gateway's proxy preHandler and the backend trusts the headers
+// off the internal network.
+export async function requireSession(req: FastifyRequest, reply: FastifyReply) {
+  delete req.headers["x-user-sub"];
+  delete req.headers["x-user-email"];
+  const session = await readSession(req);
+  if (!session) {
+    return reply.code(401).send({ message: "not authenticated" });
+  }
+  req.headers["x-user-sub"] = session.sub;
+  if (session.email) req.headers["x-user-email"] = session.email;
 }
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {

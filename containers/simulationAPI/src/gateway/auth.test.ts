@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, test } from "node:test";
-import { buildApp } from "./app.js";
+import { buildApp } from "../app.js";
 import { __test } from "./auth.js";
 
 // The OIDC round-trip (login/callback) needs a live FusionAuth, so it's

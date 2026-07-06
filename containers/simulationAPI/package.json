@@ -8,7 +8,7 @@
     "start": "node dist/main.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:enable": "gh workflow run db-access.yml -f action=enable -f cidr=$(curl -s -4 ifconfig.me)/32",
     "db:disable": "gh workflow run db-access.yml -f action=disable"
   },
