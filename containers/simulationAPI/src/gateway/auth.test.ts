@@ -80,11 +80,28 @@ test("GET /auth/login redirects to the FusionAuth authorize endpoint", async () 
   await app.close();
 });
 
+test("GET /auth/register redirects to the FusionAuth registration endpoint", async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: "GET",
+    url: "/auth/register",
+    headers: appHost,
+  });
+  assert.equal(res.statusCode, 302);
+  const location = res.headers["location"] as string;
+  assert.match(location, /\/oauth2\/register\?/);
+  assert.match(location, /response_type=code/);
+  // Same login transaction cookie as /auth/login — the shared /auth/callback
+  // verifies it, so registration returns authenticated with no extra plumbing.
+  assert.match(String(res.headers["set-cookie"]), /be_auth_tx=/);
+  await app.close();
+});
+
 test("gateway routes do not exist on other hostnames", async () => {
   const app = await buildApp();
   // The api hostname must expose neither the login flow nor the SPA proxy —
   // its API routes are the unconstrained ones.
-  for (const url of ["/auth/login", "/some/page"]) {
+  for (const url of ["/auth/login", "/auth/register", "/some/page"]) {
     const res = await app.inject({
       method: "GET",
       url,

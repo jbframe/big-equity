@@ -72,6 +72,10 @@
             "accessTokenKeyId": "#{signingKeyId}",
             "idTokenKeyId": "#{signingKeyId}"
           },
+          "registrationConfiguration": {
+            "enabled": true,
+            "type": "basic"
+          },
           "oauthConfiguration": {
             "clientSecret": "#{ENV.AUTH_CLIENT_SECRET}",
             "enabledGrants": ["authorization_code"],
