@@ -114,6 +114,83 @@ test("shows an error when saving fails", async () => {
   ).toBe(false);
 });
 
+const storedResult = {
+  id: 7,
+  createdAt: "2026-07-05 12:00:00+00",
+  source: "web",
+  heroHand: ["ad", "5d", "4s", "ks", "10c"],
+  villainHand: ["ah", "ac", "kd", "4c", "2h"],
+  board: ["3s", "9d", "js"],
+  simulations: 1000,
+  heroEquity: 55.125,
+  high: { heroWins: 500, villainWins: 400, splits: 100 },
+  low: { heroWins: 300, villainWins: 200, splits: 100, noLow: 400 },
+  scoop: { hero: 250, villain: 150, none: 600 },
+  noScoop: {
+    high: { heroWins: 300, villainWins: 200, splits: 100 },
+    low: { heroWins: 200, villainWins: 150, splits: 50, noLow: 200 },
+  },
+};
+
+function stubResultsList(results: unknown[]) {
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ results }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("the past results tab lists saved results in display notation", async () => {
+  const fetchMock = stubResultsList([storedResult]);
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("tab", { name: /past results/i }));
+
+  expect(await screen.findByText("Ad 5d 4s Ks Tc")).toBeTruthy();
+  expect(screen.getByText("Ah Ac Kd 4c 2h")).toBeTruthy();
+  expect(screen.getByText("55.125%")).toBeTruthy();
+  const [url] = fetchMock.mock.calls[0] as [string];
+  expect(url.endsWith("/results")).toBe(true);
+
+  // Expanding a row shows the full breakdown.
+  fireEvent.click(screen.getByRole("button", { name: /ad 5d 4s ks tc/i }));
+  expect(screen.getByText(/hero equity/i)).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Scoop", level: 3 })).toBeTruthy();
+});
+
+test("the past results tab shows an empty state", async () => {
+  stubResultsList([]);
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("tab", { name: /past results/i }));
+
+  expect(await screen.findByText(/no saved results yet/i)).toBeTruthy();
+});
+
+test("the past results tab surfaces load failures", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+  render(<App />);
+  fireEvent.click(screen.getByRole("tab", { name: /past results/i }));
+
+  expect(await screen.findByText(/network error/i)).toBeTruthy();
+});
+
+test("the simulator form keeps its values across tab switches", async () => {
+  stubResultsList([]);
+
+  render(<App />);
+  setInput(/hero hand/i, "As Ks Qs Js 9s");
+  fireEvent.click(screen.getByRole("tab", { name: /past results/i }));
+  await screen.findByText(/no saved results yet/i);
+  fireEvent.click(screen.getByRole("tab", { name: /simulator/i }));
+
+  expect(screen.getByLabelText<HTMLInputElement>(/hero hand/i).value).toBe("As Ks Qs Js 9s");
+});
+
 test("a locked full board shows 100% hero equity", async () => {
   render(<App />);
   setInput(/hero hand/i, "As Ts 3h 4h 5h");
