@@ -3,6 +3,8 @@ import { useState } from "react";
 import { toApiCards } from "./api/cards";
 import { UnauthorizedError } from "./api/client";
 import { createResult } from "./api/endpoints";
+import PastResults from "./PastResults";
+import { Results } from "./Results";
 import { parseHand } from "./sim/cards";
 import type { SimulationResult } from "./sim/simulation";
 import { simulateBoard } from "./sim/simulation";
@@ -18,9 +20,6 @@ function splitCards(raw: string): string[] {
     .filter(Boolean);
 }
 
-const pct = (n: number, total: number): string =>
-  total === 0 ? "0.00" : ((n / total) * 100).toFixed(2);
-
 // A finished run keeps the inputs that produced it, so saving stays correct
 // even after the form is edited.
 interface CompletedRun {
@@ -34,7 +33,10 @@ type SaveState =
   | { status: "idle" | "saving" | "saved" }
   | { status: "error"; message: string };
 
+type Tab = "simulator" | "past";
+
 export default function App() {
+  const [tab, setTab] = useState<Tab>("simulator");
   const [hero, setHero] = useState(DEFAULT_HERO);
   const [villain, setVillain] = useState(DEFAULT_VILLAIN);
   const [board, setBoard] = useState(DEFAULT_BOARD);
@@ -128,108 +130,98 @@ export default function App() {
           Log out
         </a>
       </header>
-      <p className="hint">
-        Cards as rank + suit, separated by spaces (e.g. <code>Ad 5d 4s Ks Tc</code>). Ten is{" "}
-        <code>T</code> or <code>10</code>; suits are <code>c d h s</code>.
-      </p>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          run();
-        }}
-      >
-        <label>
-          Hero hand (5 cards)
-          <input value={hero} onChange={(e) => setHero(e.target.value)} />
-        </label>
-        <label>
-          Villain hand (5 cards)
-          <input value={villain} onChange={(e) => setVillain(e.target.value)} />
-        </label>
-        <label>
-          Board (0–5 cards)
-          <input value={board} onChange={(e) => setBoard(e.target.value)} />
-        </label>
-        <label>
-          Simulations
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={simulations}
-            onChange={(e) => setSimulations(Number(e.target.value))}
-          />
-        </label>
-        <button type="submit" disabled={running}>
-          {running ? "Running…" : "Run simulation"}
+      <div className="tabs" role="tablist" aria-label="Views">
+        <button
+          type="button"
+          role="tab"
+          id="tab-simulator"
+          aria-selected={tab === "simulator"}
+          aria-controls="panel-simulator"
+          className={tab === "simulator" ? "tab active" : "tab"}
+          onClick={() => setTab("simulator")}
+        >
+          Simulator
         </button>
-      </form>
+        <button
+          type="button"
+          role="tab"
+          id="tab-past"
+          aria-selected={tab === "past"}
+          aria-controls="panel-past"
+          className={tab === "past" ? "tab active" : "tab"}
+          onClick={() => setTab("past")}
+        >
+          Past results
+        </button>
+      </div>
 
-      {error && <p className="error">{error}</p>}
+      {tab === "past" ? (
+        <div id="panel-past" role="tabpanel" aria-labelledby="tab-past">
+          <PastResults />
+        </div>
+      ) : (
+        <div id="panel-simulator" role="tabpanel" aria-labelledby="tab-simulator">
+          <p className="hint">
+            Cards as rank + suit, separated by spaces (e.g. <code>Ad 5d 4s Ks Tc</code>). Ten is{" "}
+            <code>T</code> or <code>10</code>; suits are <code>c d h s</code>.
+          </p>
 
-      {lastRun && !running && (
-        <>
-          <Results result={lastRun.result} />
-          <div className="save">
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saveState.status === "saving" || saveState.status === "saved"}
-            >
-              {saveState.status === "saving"
-                ? "Saving…"
-                : saveState.status === "saved"
-                  ? "Saved ✓"
-                  : "Save result"}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              run();
+            }}
+          >
+            <label>
+              Hero hand (5 cards)
+              <input value={hero} onChange={(e) => setHero(e.target.value)} />
+            </label>
+            <label>
+              Villain hand (5 cards)
+              <input value={villain} onChange={(e) => setVillain(e.target.value)} />
+            </label>
+            <label>
+              Board (0–5 cards)
+              <input value={board} onChange={(e) => setBoard(e.target.value)} />
+            </label>
+            <label>
+              Simulations
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={simulations}
+                onChange={(e) => setSimulations(Number(e.target.value))}
+              />
+            </label>
+            <button type="submit" disabled={running}>
+              {running ? "Running…" : "Run simulation"}
             </button>
-            {saveState.status === "error" && <p className="error">{saveState.message}</p>}
-          </div>
-        </>
+          </form>
+
+          {error && <p className="error">{error}</p>}
+
+          {lastRun && !running && (
+            <>
+              <Results result={lastRun.result} />
+              <div className="save">
+                <button
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={saveState.status === "saving" || saveState.status === "saved"}
+                >
+                  {saveState.status === "saving"
+                    ? "Saving…"
+                    : saveState.status === "saved"
+                      ? "Saved ✓"
+                      : "Save result"}
+                </button>
+                {saveState.status === "error" && <p className="error">{saveState.message}</p>}
+              </div>
+            </>
+          )}
+        </div>
       )}
     </main>
-  );
-}
-
-function Results({ result }: { result: SimulationResult }) {
-  const { simulations: sims, high, low, scoop, noScoop } = result;
-  const none = scoop.none;
-
-  return (
-    <section className="results">
-      <h2>
-        Hero equity: <strong>{result.heroEquity.toFixed(3)}%</strong>
-      </h2>
-      <p className="hint">{sims.toLocaleString()} simulations</p>
-
-      <h3>High hand</h3>
-      <p>
-        Hero wins {pct(high.heroWins, sims)}% · Villain wins {pct(high.villainWins, sims)}% ·
-        Splits {pct(high.splits, sims)}%
-      </p>
-
-      <h3>Low hand</h3>
-      <p>
-        No low {pct(low.noLow, sims)}% · Hero wins {pct(low.heroWins, sims)}% · Villain wins{" "}
-        {pct(low.villainWins, sims)}% · Splits {pct(low.splits, sims)}%
-      </p>
-
-      <h3>Scoop</h3>
-      <p>
-        Hero scoops {pct(scoop.hero, sims)}% · Villain scoops {pct(scoop.villain, sims)}% · No
-        scoop {pct(none, sims)}%
-      </p>
-
-      <h3>When nobody scoops</h3>
-      <p>
-        High — Hero wins {pct(noScoop.high.heroWins, none)}% · Villain wins{" "}
-        {pct(noScoop.high.villainWins, none)}% · Splits {pct(noScoop.high.splits, none)}%
-      </p>
-      <p>
-        Low — Hero wins {pct(noScoop.low.heroWins, none)}% · Villain wins{" "}
-        {pct(noScoop.low.villainWins, none)}% · Splits {pct(noScoop.low.splits, none)}% · No low{" "}
-        {pct(noScoop.low.noLow, none)}%
-      </p>
-    </section>
   );
 }
