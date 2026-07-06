@@ -4,10 +4,10 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "./client.js";
 
-// drizzle/ sits at the package root, two levels up from this file in both
+// drizzle/ sits at the package root, three levels up from this file in both
 // the src tree (dev) and dist (runtime) — the Docker runtime stage copies it
 // alongside dist for exactly this.
-const MIGRATIONS_FOLDER = fileURLToPath(new URL("../../drizzle", import.meta.url));
+const MIGRATIONS_FOLDER = fileURLToPath(new URL("../../../drizzle", import.meta.url));
 
 // The API and DB run as separate compose projects, so depends_on can't order
 // them across the shared network — instead of assuming the DB is up, retry

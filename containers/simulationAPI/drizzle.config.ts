@@ -4,7 +4,7 @@ import { defineConfig } from "drizzle-kit";
 // in drizzle/ — no database needed. Only db-touching commands (push, studio)
 // use the credentials.
 export default defineConfig({
-  schema: "./src/db/schema.ts",
+  schema: "./src/backend/db/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

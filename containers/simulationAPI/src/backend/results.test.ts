@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildApp } from "./app.js";
+import { buildApp } from "../app.js";
 
 // A well-formed payload, shaped like what the batch simulators produce.
 const payload = {

@@ -1,5 +1,5 @@
 import { buildApp } from "./app.js";
-import { runMigrations } from "./db/migrate.js";
+import { runMigrations } from "./backend/db/migrate.js";
 
 // 0.0.0.0 so the port is reachable from outside the container; the compose
 // file maps it to 127.0.0.1:3003 on the box, and nginx is the only public

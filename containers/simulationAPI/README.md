@@ -3,8 +3,8 @@
 Fastify HTTP service — a long-running container, unlike the batch simulators
 — with **two roles**, one per hostname:
 
-1. **DB CRUD backend** (`api.makejohnacoffee.com`) — the CRUD layer in front
-   of the private simulationDB container. Every route is
+1. **API gateway** (`api.makejohnacoffee.com`) — the gateway for the API:
+   the CRUD layer in front of the private simulationDB container. Every route is
    schema-first: request/response shapes are defined once in zod and give
    runtime validation plus inferred handler types via
    `fastify-type-provider-zod`. For the database routes those zod schemas are
@@ -14,12 +14,19 @@ Fastify HTTP service — a long-running container, unlike the batch simulators
    subdomain, so CORS is enabled for that origin only.
 
 2. **App gateway** (`allin.makejohnacoffee.com`) — the login wall that guards
-   that front end: `src/auth.ts`
+   the simulationWeb front end: `src/gateway/auth.ts`
    runs the authorization-code flow against FusionAuth, validates the
    id_token, issues a stateless signed session cookie, and proxies the whole
    `allin.…` hostname to the static SPA container — but only when that cookie
    is valid, so no anonymous request reaches the SPA. FusionAuth stays the
    sole user store — there are no accounts here.
+
+The two roles share this container but not code: each lives in its own
+module (`src/gateway/`, `src/backend/`) that registers its own plugins —
+the cookie support only the gateway uses, the CORS headers only the backend
+needs — and they meet only in `src/app.ts`, the composition root. Splitting
+them into separate containers later is a matter of giving each module its
+own entry point.
 
 ## Prerequisites
 
@@ -53,7 +60,7 @@ the deploy pipeline writes it into `.env`.
 
 ## Database workflow
 
-Tables are defined in TypeScript (`src/db/schema.ts`). To change the schema:
+Tables are defined in TypeScript (`src/backend/db/schema.ts`). To change the schema:
 edit it, run `npx drizzle-kit generate`, and commit the SQL it emits under
 `drizzle/` — the next deploy applies it at startup. Migrations are plain SQL:
 reviewable in the PR, fixable by hand.
@@ -87,19 +94,21 @@ update route.
 
 ## Layout
 
-| File                | Responsibility                                        |
-| ------------------- | ----------------------------------------------------- |
-| `src/app.ts`        | App factory: zod compilers, CORS, cookie, route registration |
-| `src/health.ts`     | `GET /health` route + zod schema                      |
-| `src/auth.ts`       | App gateway: OIDC routes, session cookie, SPA login-wall proxy |
-| `src/results.ts`    | CRUD routes; zod schemas derived from the table       |
-| `src/db/schema.ts`  | Drizzle table definitions + shared tally schemas      |
-| `src/db/client.ts`  | pg pool + drizzle instance (`DATABASE_URL`)           |
-| `src/db/migrate.ts` | Startup migration runner with bounded retry           |
-| `src/main.ts`       | Entry point: builds the app, migrates, listens (3003) |
-| `drizzle.config.ts` | drizzle-kit config (schema → `drizzle/` SQL)          |
-| `drizzle/`          | Generated SQL migrations, committed                   |
-| `src/*.test.ts`     | Integration tests via `app.inject`; the CRUD round trip runs when `DATABASE_URL` points at a disposable Postgres |
+| File                        | Responsibility                                        |
+| --------------------------- | ----------------------------------------------------- |
+| `src/main.ts`               | Entry point: builds the app, migrates, listens (3003) |
+| `src/app.ts`                | Composition root: zod compilers + registers the two role modules |
+| `src/gateway/index.ts`      | Gateway module entry: cookie plugin + auth routes     |
+| `src/gateway/auth.ts`       | App gateway: OIDC routes, session cookie, SPA login-wall proxy |
+| `src/backend/index.ts`      | Backend module entry: CORS + health + results routes  |
+| `src/backend/health.ts`     | `GET /health` route + zod schema                      |
+| `src/backend/results.ts`    | CRUD routes; zod schemas derived from the table       |
+| `src/backend/db/schema.ts`  | Drizzle table definitions + shared tally schemas      |
+| `src/backend/db/client.ts`  | pg pool + drizzle instance (`DATABASE_URL`)           |
+| `src/backend/db/migrate.ts` | Startup migration runner with bounded retry           |
+| `drizzle.config.ts`         | drizzle-kit config (schema → `drizzle/` SQL)          |
+| `drizzle/`                  | Generated SQL migrations, committed                   |
+| `src/**/*.test.ts`          | Integration tests via `app.inject`, kept next to the module they pin; the CRUD round trip runs when `DATABASE_URL` points at a disposable Postgres |
 
 ## Component diagram (C4)
 
@@ -117,13 +126,19 @@ graph TB
 
     subgraph API["simulationAPI · Node.js / Fastify · :3003"]
         Main["<b>main.ts</b><br/>[Component: entry point]<br/>Builds the app, migrates,<br/>then listens"]
-        App["<b>app.ts</b><br/>[Component: app factory]<br/>Fastify + zod compilers, CORS for<br/>the web origin, cookie plugin,<br/>route registration"]
-        Health["<b>health.ts</b><br/>[Component: route]<br/>GET /health liveness for<br/>the compose healthcheck"]
-        Gateway["<b>auth.ts</b><br/>[Component: app gateway]<br/>OIDC relying party + login wall:<br/>/auth/* routes, signed session<br/>cookie, session-gated SPA proxy —<br/>host-constrained to allin.…"]
-        Results["<b>results.ts</b><br/>[Component: routes]<br/>CRUD for simulation results;<br/>zod schemas derived from the table"]
-        Schema["<b>db/schema.ts</b><br/>[Component: Drizzle schema]<br/>Table definitions +<br/>shared tally schemas"]
-        Client["<b>db/client.ts</b><br/>[Component: DB client]<br/>pg pool + drizzle instance<br/>(DATABASE_URL)"]
-        Migrate["<b>db/migrate.ts</b><br/>[Component: migration runner]<br/>Applies drizzle/ SQL at startup;<br/>bounded connect-retry"]
+        App["<b>app.ts</b><br/>[Component: composition root]<br/>Fastify + zod compilers;<br/>registers the two role modules —<br/>the only place they meet"]
+
+        subgraph GWM["src/gateway — app-gateway role (cookie plugin lives here)"]
+            Gateway["<b>gateway/auth.ts</b><br/>[Component: app gateway]<br/>OIDC relying party + login wall:<br/>/auth/* routes, signed session<br/>cookie, session-gated SPA proxy —<br/>host-constrained to allin.…"]
+        end
+
+        subgraph BEM["src/backend — API-gateway role (CORS lives here)"]
+            Health["<b>backend/health.ts</b><br/>[Component: route]<br/>GET /health liveness for<br/>the compose healthcheck"]
+            Results["<b>backend/results.ts</b><br/>[Component: routes]<br/>CRUD for simulation results;<br/>zod schemas derived from the table"]
+            Schema["<b>backend/db/schema.ts</b><br/>[Component: Drizzle schema]<br/>Table definitions +<br/>shared tally schemas"]
+            Client["<b>backend/db/client.ts</b><br/>[Component: DB client]<br/>pg pool + drizzle instance<br/>(DATABASE_URL)"]
+            Migrate["<b>backend/db/migrate.ts</b><br/>[Component: migration runner]<br/>Applies drizzle/ SQL at startup;<br/>bounded connect-retry"]
+        end
     end
 
     Proxy -- "HTTP :3003<br/>both hostnames" --> App
@@ -144,6 +159,8 @@ graph TB
     class Main,App,Health,Gateway,Results,Schema,Client,Migrate component
     class Proxy,Web,Auth,DB container
     style API fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#94a3b8
+    style GWM fill:transparent,stroke:#64748b,stroke-dasharray:3 3,color:#94a3b8
+    style BEM fill:transparent,stroke:#64748b,stroke-dasharray:3 3,color:#94a3b8
 
     linkStyle default stroke:#94a3b8,color:#ffffff
     linkStyle 0,7 stroke:#4fb477
