@@ -75,7 +75,7 @@
           "oauthConfiguration": {
             "clientSecret": "#{ENV.AUTH_CLIENT_SECRET}",
             "enabledGrants": ["authorization_code"],
-            "authorizedRedirectURLs": ["#{appUrl}/auth/callback"],
+            "authorizedRedirectURLs": ["#{appUrl}/auth/callback", "#{appUrl}"],
             "logoutURL": "#{appUrl}/",
             "relationship": "FirstParty",
             "scopeHandlingPolicy": "Compatibility"
