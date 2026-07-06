@@ -75,7 +75,12 @@ export default function App() {
 
   return (
     <main className="app">
-      <h1>Poker Hi-Lo Equity</h1>
+      <header className="app-header">
+        <h1>Poker Hi-Lo Equity</h1>
+        <a className="logout" href="/auth/logout">
+          Log out
+        </a>
+      </header>
       <p className="hint">
         Cards as rank + suit, separated by spaces (e.g. <code>Ad 5d 4s Ks Tc</code>). Ten is{" "}
         <code>T</code> or <code>10</code>; suits are <code>c d h s</code>.
