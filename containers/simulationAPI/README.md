@@ -82,6 +82,7 @@ dev-only 5432 toggle for your current IP via the `db-access` workflow;
 | --------------------- | ------------------ | ---------------------------------------------- |
 | `GET /health`         | `{"status":"ok"}`  | Liveness for the compose healthcheck           |
 | `GET /auth/login` †   | `302` to FusionAuth | Start the OIDC login flow                      |
+| `GET /auth/register` † | `302` to FusionAuth | Deep-link to the hosted self-service signup form; returns through `/auth/callback` |
 | `GET /auth/callback` † | `302` to the app    | Code exchange + id_token check, sets session   |
 | `GET /auth/me` †      | identity or `401`   | Who's signed in (for the SPA)                  |
 | `GET /auth/logout` †  | `302` to FusionAuth | Clear session, end the IdP session             |

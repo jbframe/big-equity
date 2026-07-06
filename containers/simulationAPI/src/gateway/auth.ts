@@ -52,6 +52,12 @@ const SESSION_SECRET = new TextEncoder().encode(
 
 // FusionAuth OAuth2/OIDC endpoints, all derived from the issuer.
 const AUTHORIZE_ENDPOINT = `${ISSUER}/oauth2/authorize`;
+// Self-service registration: FusionAuth's hosted signup form, an OAuth
+// endpoint shaped exactly like /oauth2/authorize — same params, same code
+// response — so /auth/callback handles the return unchanged. Requires
+// self-service registration enabled on the poker_equity application in the
+// FusionAuth admin UI; without it this endpoint refuses the request.
+const REGISTER_ENDPOINT = `${ISSUER}/oauth2/register`;
 const TOKEN_ENDPOINT = `${ISSUER}/oauth2/token`;
 const LOGOUT_ENDPOINT = `${ISSUER}/oauth2/logout`;
 const JWKS = createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks.json`));
@@ -87,6 +93,40 @@ function safeReturnPath(rd: unknown): string {
     return rd;
   }
   return "/";
+}
+
+// Begin an OIDC flow — login or self-service registration. Both stash
+// state/nonce/return-path in a short-lived signed cookie (no server-side
+// store) and bounce to FusionAuth; they differ only in the endpoint, since
+// /oauth2/register and /oauth2/authorize take the same params and both come
+// back through /auth/callback with an auth code. The SPA can't do this
+// itself: the state/nonce and the tx cookie must be minted server-side.
+async function beginOidcFlow(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  endpoint: string,
+): Promise<FastifyReply> {
+  const state = randomBytes(32).toString("base64url");
+  const nonce = randomBytes(32).toString("base64url");
+  const rd = safeReturnPath((req.query as Record<string, unknown>)["rd"]);
+
+  const tx = await new SignJWT({ state, nonce, rd })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(TX_TTL)
+    .sign(SESSION_SECRET);
+  reply.setCookie(TX_COOKIE, tx, { ...cookieBase, maxAge: 600 });
+
+  const url = new URL(endpoint);
+  url.search = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: "code",
+    redirect_uri: REDIRECT_URI,
+    scope: "openid email profile",
+    state,
+    nonce,
+  }).toString();
+  return reply.redirect(url.toString());
 }
 
 async function signSession(claims: SessionClaims): Promise<string> {
@@ -137,31 +177,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   // Host (api.…, bare IP) they don't exist.
   const constraints = { host: APP_HOST };
 
-  // Begin login: stash state/nonce/return-path in a short-lived signed cookie
-  // (no server-side session store needed) and bounce to FusionAuth.
-  app.get("/auth/login", { constraints }, async (req, reply) => {
-    const state = randomBytes(32).toString("base64url");
-    const nonce = randomBytes(32).toString("base64url");
-    const rd = safeReturnPath((req.query as Record<string, unknown>)["rd"]);
+  // Begin login: bounce to FusionAuth's hosted login page.
+  app.get("/auth/login", { constraints }, (req, reply) =>
+    beginOidcFlow(req, reply, AUTHORIZE_ENDPOINT),
+  );
 
-    const tx = await new SignJWT({ state, nonce, rd })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime(TX_TTL)
-      .sign(SESSION_SECRET);
-    reply.setCookie(TX_COOKIE, tx, { ...cookieBase, maxAge: 600 });
-
-    const authorizeUrl = new URL(AUTHORIZE_ENDPOINT);
-    authorizeUrl.search = new URLSearchParams({
-      client_id: CLIENT_ID,
-      response_type: "code",
-      redirect_uri: REDIRECT_URI,
-      scope: "openid email profile",
-      state,
-      nonce,
-    }).toString();
-    return reply.redirect(authorizeUrl.toString());
-  });
+  // Begin self-service registration: bounce to FusionAuth's hosted signup
+  // form. On success FusionAuth redirects back with an auth code and the new
+  // user lands authenticated through /auth/callback, exactly like login — so
+  // there's no user-creation code or user store here (ADR-006/007).
+  app.get("/auth/register", { constraints }, (req, reply) =>
+    beginOidcFlow(req, reply, REGISTER_ENDPOINT),
+  );
 
   // OIDC callback: verify state, swap the code for tokens, validate the
   // id_token, then set the session cookie and return the user where they were.
