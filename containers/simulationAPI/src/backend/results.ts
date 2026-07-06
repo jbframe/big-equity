@@ -1,4 +1,5 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import type { FastifyRequest } from "fastify";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -34,14 +35,22 @@ const refinements = {
   noScoop: noScoopSchema,
 };
 
-export const resultSchema = createSelectSchema(simulationResults, refinements);
+// `ownerSub` is server-side bookkeeping, not part of the wire contract: it's
+// always the caller's own id, so echoing it back tells the client nothing and
+// keeps the response identical to what the SPA already expects.
+export const resultSchema = createSelectSchema(
+  simulationResults,
+  refinements,
+).omit({ ownerSub: true });
 
 // The identity `id` is already unsettable in the derived insert schema;
-// createdAt is the database's to fill.
+// createdAt is the database's to fill, and ownerSub comes from the session
+// (see the POST handler) — never the request body, so a client can't create a
+// result owned by someone else.
 export const createResultSchema = createInsertSchema(
   simulationResults,
   refinements,
-).omit({ createdAt: true });
+).omit({ createdAt: true, ownerSub: true });
 
 const idParamsSchema = z.object({ id: z.coerce.number().int().positive() });
 
@@ -51,6 +60,19 @@ const listQuerySchema = z.object({
 });
 
 const notFoundSchema = z.object({ message: z.string() });
+
+// The owner of the current request: the signed-in user's `sub`, forwarded by
+// the gateway's session guard as x-user-sub (which also deletes any
+// client-supplied copy, so this can't be spoofed). The guard refuses
+// anonymous callers before any handler runs, so the header is always present
+// here; treat a missing one as a wiring bug rather than an anonymous request.
+function ownerOf(req: FastifyRequest): string {
+  const sub = req.headers["x-user-sub"];
+  if (typeof sub !== "string" || sub.length === 0) {
+    throw new Error("missing x-user-sub; auth guard not installed?");
+  }
+  return sub;
+}
 
 // CRUD for simulation results (ADR-003). Results are immutable records of a
 // batch run, so there is deliberately no update route.
@@ -67,7 +89,7 @@ export async function resultsRoutes(app: FastifyInstance) {
     handler: async (req, reply) => {
       const [row] = await db
         .insert(simulationResults)
-        .values(req.body)
+        .values({ ...req.body, ownerSub: ownerOf(req) })
         .returning();
       if (!row) {
         throw new Error("insert returned no row");
@@ -87,6 +109,7 @@ export async function resultsRoutes(app: FastifyInstance) {
       const results = await db
         .select()
         .from(simulationResults)
+        .where(eq(simulationResults.ownerSub, ownerOf(req)))
         .orderBy(desc(simulationResults.createdAt), desc(simulationResults.id))
         .limit(req.query.limit)
         .offset(req.query.offset);
@@ -105,7 +128,14 @@ export async function resultsRoutes(app: FastifyInstance) {
       const [row] = await db
         .select()
         .from(simulationResults)
-        .where(eq(simulationResults.id, req.params.id));
+        .where(
+          and(
+            eq(simulationResults.id, req.params.id),
+            eq(simulationResults.ownerSub, ownerOf(req)),
+          ),
+        );
+      // Someone else's result is indistinguishable from one that doesn't
+      // exist: a 404 either way, so ownership can't be probed by id.
       if (!row) {
         return reply.code(404).send({ message: "result not found" });
       }
@@ -123,7 +153,12 @@ export async function resultsRoutes(app: FastifyInstance) {
     handler: async (req, reply) => {
       const deleted = await db
         .delete(simulationResults)
-        .where(eq(simulationResults.id, req.params.id))
+        .where(
+          and(
+            eq(simulationResults.id, req.params.id),
+            eq(simulationResults.ownerSub, ownerOf(req)),
+          ),
+        )
         .returning({ id: simulationResults.id });
       if (deleted.length === 0) {
         return reply.code(404).send({ message: "result not found" });

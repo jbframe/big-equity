@@ -15,6 +15,13 @@
       "when": 1783327818912,
       "tag": "0001_user-settings",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783328000000,
+      "tag": "0002_add_owner_sub",
+      "breakpoints": true
     }
   ]
 }

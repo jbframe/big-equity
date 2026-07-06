@@ -50,6 +50,11 @@ export const userSettings = pgTable("user_settings", {
 
 export const simulationResults = pgTable("simulation_results", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  // The signed-in user who owns this result (FusionAuth's `sub`). Filled from
+  // the session — the gateway forwards it as x-user-sub — never from the
+  // request body, so a result can only ever belong to its creator. Every read
+  // and delete is scoped by it, so users only ever see their own results.
+  ownerSub: text("owner_sub").notNull(),
   // Which simulator produced the result, e.g. "simulationTS".
   source: text().notNull(),
   heroHand: text("hero_hand").array().notNull(),

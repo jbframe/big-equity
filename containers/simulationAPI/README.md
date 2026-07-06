@@ -87,20 +87,24 @@ dev-only 5432 toggle for your current IP via the `db-access` workflow;
 | `GET /auth/me` †      | identity or `401`   | Who's signed in (for the SPA)                  |
 | `GET /auth/logout` †  | `302` to FusionAuth | Clear session, end the IdP session             |
 | any other path †      | SPA proxy or `302`  | The login wall: valid session → proxied to `simulationweb:80`; anonymous → `/auth/login` |
-| `POST /results` ‡     | `201` created row  | Store a batch simulator run                    |
-| `GET /results` ‡      | `{results: [...]}` | List runs, newest first (`limit`/`offset`)     |
-| `GET /results/:id` ‡  | row or `404`       | Fetch one run                                  |
-| `DELETE /results/:id` ‡ | `204` or `404`   | Remove a run                                   |
+| `POST /results` ‡     | `201` created row  | Store a batch simulator run, owned by the caller |
+| `GET /results` ‡      | `{results: [...]}` | List the caller's runs, newest first (`limit`/`offset`) |
+| `GET /results/:id` ‡  | row or `404`       | Fetch one of the caller's runs                 |
+| `DELETE /results/:id` ‡ | `204` or `404`   | Remove one of the caller's runs                |
 
 † Gateway routes: registered with a
 Fastify `host` constraint for `allin.makejohnacoffee.com` — on the api
 hostname they don't exist (404). They're same-origin with the SPA, so they
 need no CORS; the results API stays CORS-restricted to the web origin.
 
-‡ Session-gated: the gateway's session cookie (scoped to the parent domain
-so it reaches the api hostname too) must be valid, or the request gets a
-`401` before any handler runs. The signed-in user arrives in the handlers as
-`x-user-sub` / `x-user-email` headers.
+‡ Session-gated and per-user: the gateway's session cookie (scoped to the
+parent domain so it reaches the api hostname too) must be valid, or the
+request gets a `401` before any handler runs. The signed-in user arrives in
+the handlers as `x-user-sub` / `x-user-email` headers. Each stored result
+records its owner (`owner_sub`, taken from the session, never the request
+body), and every list/fetch/delete is scoped to the caller — so a user only
+ever sees their own results, and another owner's row is a `404`, not an
+existence leak.
 
 Results are immutable records of a batch run, so there is deliberately no
 update route.

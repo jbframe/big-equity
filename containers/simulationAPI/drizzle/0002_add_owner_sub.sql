@@ -1,0 +1,1 @@
+ALTER TABLE "simulation_results" ADD COLUMN "owner_sub" text NOT NULL;
