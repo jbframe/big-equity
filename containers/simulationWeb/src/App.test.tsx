@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
 import App from "./App";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 function setInput(label: RegExp, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -55,6 +58,60 @@ test("runs a simulation and shows the results breakdown", async () => {
   expect(screen.getByRole("heading", { name: /high hand/i })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Scoop", level: 3 })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "When nobody scoops", level: 3 })).toBeTruthy();
+});
+
+test("saves a result to the backend in API card notation", async () => {
+  // Echo the payload back with id/createdAt, like the backend's insert does.
+  const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          ...JSON.parse(init.body as string),
+          id: 1,
+          createdAt: "2026-07-06 08:00:00+00",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<App />);
+  setInput(/simulations/i, "50");
+  runSimulation();
+  await screen.findByText(/hero equity/i, undefined, { timeout: 5000 });
+
+  fireEvent.click(screen.getByRole("button", { name: /save result/i }));
+
+  expect(await screen.findByRole("button", { name: /saved/i })).toBeTruthy();
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url.endsWith("/results")).toBe(true);
+  const body = JSON.parse(init.body as string);
+  expect(body.source).toBe("web");
+  expect(body.heroHand).toEqual(["ad", "5d", "4s", "ks", "10c"]);
+  expect(body.villainHand).toEqual(["ah", "ac", "kd", "4c", "2h"]);
+  expect(body.board).toEqual(["3s", "9d", "js"]);
+  expect(body.simulations).toBe(50);
+});
+
+test("shows an error when saving fails", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+  );
+
+  render(<App />);
+  setInput(/simulations/i, "50");
+  runSimulation();
+  await screen.findByText(/hero equity/i, undefined, { timeout: 5000 });
+
+  fireEvent.click(screen.getByRole("button", { name: /save result/i }));
+
+  expect(await screen.findByText(/network error/i)).toBeTruthy();
+  // The button recovers so the user can retry.
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: /save result/i }).disabled,
+  ).toBe(false);
 });
 
 test("a locked full board shows 100% hero equity", async () => {

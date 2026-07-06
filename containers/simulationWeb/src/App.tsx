@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+import { toApiCards } from "./api/cards";
+import { UnauthorizedError } from "./api/client";
+import { createResult } from "./api/endpoints";
 import { parseHand } from "./sim/cards";
 import type { SimulationResult } from "./sim/simulation";
 import { simulateBoard } from "./sim/simulation";
@@ -18,6 +21,19 @@ function splitCards(raw: string): string[] {
 const pct = (n: number, total: number): string =>
   total === 0 ? "0.00" : ((n / total) * 100).toFixed(2);
 
+// A finished run keeps the inputs that produced it, so saving stays correct
+// even after the form is edited.
+interface CompletedRun {
+  result: SimulationResult;
+  heroHand: string[];
+  villainHand: string[];
+  board: string[];
+}
+
+type SaveState =
+  | { status: "idle" | "saving" | "saved" }
+  | { status: "error"; message: string };
+
 export default function App() {
   const [hero, setHero] = useState(DEFAULT_HERO);
   const [villain, setVillain] = useState(DEFAULT_VILLAIN);
@@ -25,7 +41,8 @@ export default function App() {
   const [simulations, setSimulations] = useState(10_000);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SimulationResult | null>(null);
+  const [lastRun, setLastRun] = useState<CompletedRun | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
 
   function validate(): string | null {
     const heroCards = splitCards(hero);
@@ -53,24 +70,54 @@ export default function App() {
     const problem = validate();
     if (problem) {
       setError(problem);
-      setResult(null);
+      setLastRun(null);
       return;
     }
     setError(null);
     setRunning(true);
     // Let React paint the "Running…" state before the sim blocks the thread.
     setTimeout(() => {
+      const heroHand = splitCards(hero);
+      const villainHand = splitCards(villain);
+      const boardCards = splitCards(board);
       try {
-        setResult(
-          simulateBoard(splitCards(hero), splitCards(villain), splitCards(board), simulations),
-        );
+        setLastRun({
+          result: simulateBoard(heroHand, villainHand, boardCards, simulations),
+          heroHand,
+          villainHand,
+          board: boardCards,
+        });
+        setSaveState({ status: "idle" });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
-        setResult(null);
+        setLastRun(null);
       } finally {
         setRunning(false);
       }
     }, 20);
+  }
+
+  async function save() {
+    if (!lastRun) return;
+    setSaveState({ status: "saving" });
+    try {
+      await createResult({
+        ...lastRun.result,
+        source: "web",
+        heroHand: toApiCards(lastRun.heroHand),
+        villainHand: toApiCards(lastRun.villainHand),
+        board: toApiCards(lastRun.board),
+      });
+      setSaveState({ status: "saved" });
+    } catch (e) {
+      const message =
+        e instanceof UnauthorizedError
+          ? "Your session has expired — reload the page to sign in again."
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      setSaveState({ status: "error", message });
+    }
   }
 
   return (
@@ -121,7 +168,25 @@ export default function App() {
 
       {error && <p className="error">{error}</p>}
 
-      {result && !running && <Results result={result} />}
+      {lastRun && !running && (
+        <>
+          <Results result={lastRun.result} />
+          <div className="save">
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saveState.status === "saving" || saveState.status === "saved"}
+            >
+              {saveState.status === "saving"
+                ? "Saving…"
+                : saveState.status === "saved"
+                  ? "Saved ✓"
+                  : "Save result"}
+            </button>
+            {saveState.status === "error" && <p className="error">{saveState.message}</p>}
+          </div>
+        </>
+      )}
     </main>
   );
 }
