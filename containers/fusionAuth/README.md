@@ -84,6 +84,14 @@ docker exec fusionauth curl -fsS http://localhost:9011/api/status  # liveness JS
 The admin UI is at `https://id.makejohnacoffee.com/admin`. First visit walks
 through creating the initial admin user (FusionAuth's Setup Wizard).
 
+## Local development
+
+The local dev stack (`./cmd local-stack` — see the root README) runs this same
+image against a local Postgres at `http://local.id.makejohnacoffee.com`.
+Unlike production's Setup-Wizard path, it's provisioned non-interactively on
+first boot by a kickstart file (`scripts/local-stack/kickstart.json`): app,
+OAuth client, and dev users, with per-checkout generated secrets.
+
 ## Deployment
 
 Ships through `deploy.yml` like everything else, minus the image build: the

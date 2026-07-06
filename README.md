@@ -19,7 +19,7 @@ Technology choices follow the defaults in
 | `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
 | `simulationAPI` | Dual-role Fastify service (TypeScript, zod-validated routes): CRUD backend for simulationDB on `api.…` **and** app gateway / login wall for the SPA on `allin.…`. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
-| `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; simulationAPI is its sole client. | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
+| `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; its clients are simulationAPI (app data) and fusionAuth (its own `fusionauth` database). | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
 | `fusionAuth` | Self-hosted identity provider (upstream `fusionauth/fusionauth-app`, no Dockerfile). Reuses simulationDB (its own `fusionauth` database, no bundled Postgres); OpenSearch off (`SEARCH_TYPE=database`). | [containers/fusionAuth/README.md](containers/fusionAuth/README.md) |
 | `reverseProxy` | The public edge: nginx + certbot in one image. Terminates TLS for all three hostnames on 80/443, routes to the other containers over `simulation-net`, and owns the Let's Encrypt issue/renew loop. | [containers/reverseProxy/README.md](containers/reverseProxy/README.md) |
 
@@ -55,9 +55,10 @@ simulationAPI, the app gateway:
 graph TB
     User["👤 <b>User</b><br/>[Person]<br/>Poker player in a browser<br/>allin.makejohnacoffee.com"]
     APIClient["👤 <b>API client</b><br/>[Person]<br/>Direct REST consumer<br/>api.makejohnacoffee.com"]
+    Operator["👤 <b>Operator</b><br/>[Person]<br/>FusionAuth admin UI<br/>id.makejohnacoffee.com"]
     LE["<b>Let's Encrypt</b><br/>[Software System]<br/>ACME certificate authority"]
 
-    subgraph EC2["EC2 Docker host · simulation-net"]
+    subgraph EC2["EC2 Docker host · t3.micro · Amazon Linux 2023 (latest via SSM) · simulation-net"]
         Proxy["<b>reverseProxy</b><br/>[Container: nginx + certbot]<br/>Public edge — the only container with host<br/>ports (80/443); TLS for all three hostnames,<br/>hostname routing, cert issue/renew"]
         API["<b>simulationAPI</b><br/>[Container: Node.js, Fastify]<br/>Data API (api.…) and app gateway /<br/>login wall for the SPA (allin.…)"]
         Web["<b>simulationWeb</b><br/>[Container: React SPA on nginx]<br/>Static front-end; reachable only<br/>through simulationAPI's gateway"]
@@ -67,20 +68,21 @@ graph TB
         TS["<b>simulationTS</b><br/>[Container: Node.js]<br/>Batch Omaha Hi-Lo simulator;<br/>no network exposure"]
     end
 
-    User -- "HTTPS · allin.… / id.…" --> Proxy
+    User -- "HTTPS · allin.…<br/>(and id.… for hosted login)" --> Proxy
     APIClient -- "HTTPS · api.…" --> Proxy
+    Operator -- "HTTPS · id.…" --> Proxy
     Proxy -- "ACME HTTP-01<br/>cert issue + renew" --> LE
     Proxy -- "Proxies allin.… and api.…<br/>HTTP :3003" --> API
     Proxy -- "Proxies id.…<br/>HTTP :9011" --> Auth
     API -- "Proxies the SPA when<br/>the session is valid · HTTP :80" --> Web
-    API -. "OIDC back-channel:<br/>code→token, JWKS · HTTP :9011" .-> Auth
+    API -. "OIDC back-channel: code→token, JWKS<br/>HTTPS · id.… (back through the edge)" .-> Auth
     API -- "Reads/writes app data<br/>postgres :5432" --> DB
     Auth -- "Own fusionauth database<br/>postgres :5432" --> DB
 
     classDef person fill:#08427b,stroke:#3b82f6,color:#ffffff
     classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
     classDef external fill:#686868,stroke:#8a8a8a,color:#ffffff
-    class User,APIClient person
+    class User,APIClient,Operator person
     class Proxy,API,Web,Auth,DB,PY,TS container
     class LE external
     style EC2 fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#94a3b8
@@ -102,6 +104,69 @@ Below-container detail lives with the containers and decisions:
 
 ---
 
+## Running the app locally
+
+Only the stateful/upstream pieces run in Docker locally; the code you edit
+runs natively with its watch-mode dev servers. The prod compose files under
+`containers/` are deploy artifacts for the box (external `simulation-net`,
+GHCR images, pipeline-written `.env`) and aren't used for local dev —
+[`scripts/local-stack.sh`](scripts/local-stack.sh) stands in for them:
+
+```sh
+./cmd local-stack hosts   # one-time: local.* names -> 127.0.0.1 in /etc/hosts (sudo)
+./cmd local-stack         # Postgres + FusionAuth + local edge, waits until healthy
+./cmd local               # both dev servers: API on :3003 (local.* env), SPA on :5173
+```
+
+`./cmd local` installs deps and runs both watch-mode servers with `[api]`/`[web]`
+prefixed output; Ctrl-C stops both. To run one on its own:
+`npm run dev:local` in `containers/simulationAPI`, `npm run dev` in
+`containers/simulationWeb`.
+
+Then open **http://local.allin.makejohnacoffee.com** and sign in as
+`player@example.com` (password: `LOCAL_PLAYER_PASSWORD` in
+`containers/simulationAPI/.env.local`) — the full prod flow (login wall →
+hosted FusionAuth login → session cookie → SPA) runs locally.
+
+| Local URL | Prod equivalent | What answers |
+| --- | --- | --- |
+| http://local.allin.makejohnacoffee.com | https://allin.makejohnacoffee.com | simulationAPI's login wall, proxying the Vite dev server after sign-in |
+| http://local.api.makejohnacoffee.com | https://api.makejohnacoffee.com | simulationAPI's results CRUD (session-gated, CORS for the local app origin) |
+| http://local.id.makejohnacoffee.com | https://id.makejohnacoffee.com | FusionAuth (admin UI: `admin@example.com`, password: `LOCAL_ADMIN_PASSWORD` in `.env.local`) |
+| `localhost:5432` | Docker-network-only on the box | Postgres (`postgresql://simulation:simulation@localhost:5432/simulation`) |
+
+How the pieces map to prod:
+
+- A tiny nginx (`edge` in the local stack, config in
+  [`scripts/local-stack/nginx.conf`](scripts/local-stack/nginx.conf)) stands in
+  for reverseProxy: hostname routing on `:80`, no TLS — certbot's job has no
+  local equivalent, hence plain `http` and the `local.` prefix.
+- FusionAuth is provisioned on first boot by
+  [`scripts/local-stack/kickstart.json`](scripts/local-stack/kickstart.json):
+  tenant issuer, an RS256 signing key, the `poker_equity` app (prod client
+  id, generated local secret), and the two users above. No clicking through
+  the setup wizard.
+- `npm run dev:local` starts the API with
+  `containers/simulationAPI/.env.local`, which points the OIDC config at the
+  local FusionAuth and the login wall at the Vite dev server. The file is
+  generated by `./cmd local-stack` (gitignored; random `AUTH_CLIENT_SECRET`
+  and user passwords per checkout); FusionAuth is kickstarted with the same
+  values. To rotate them: delete `.env.local`, then `./cmd local-stack reset`
+  and `up` again.
+  Plain `npm run dev` still works for API-only work against `localhost:5432`;
+  the gateway routes 404 without the alias env, and `npm test` (fastify
+  inject) covers the session-gated routes without any of this.
+
+Caveats:
+
+- **Vite HMR doesn't cross the login wall** (the SPA proxy doesn't forward
+  websockets). Iterating on the front end alone? Use http://localhost:5173
+  directly; through `local.allin.…` you reload manually.
+- **Fresh start**: `./cmd local-stack reset` drops the data volume; the next
+  `up` re-runs the Postgres role separation and the FusionAuth kickstart.
+
+---
+
 ## Repository layout
 
 ```
@@ -111,7 +176,7 @@ Below-container detail lives with the containers and decisions:
 ├── docs/                    # ADRs (docs/adr/), stories (docs/stories/), steering docs (docs/steering/)
 ├── infra/                   # Terraform + deployment — see infra/README.md
 ├── scripts/                 # operator tooling, run from your machine
-└── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
+└── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship), db-access.yml (DB dev-access toggle)
 ```
 
 ---
@@ -140,6 +205,8 @@ automatically.
 | --- | --- |
 | [`scripts/monitor.sh`](scripts/monitor.sh) | Health/CPU/mem/disk/network view of the EC2 host and its containers over SSH. Default is a live watch-style table (one row per container plus a `NODE` row) with net/disk as per-second rates; `--snap` prints a one-shot snapshot instead. Resolves the host from `$EC2_HOST` or `terraform output`. |
 | [`scripts/db-access.sh`](scripts/db-access.sh) | Toggle dev-only public access to simulationDB. `enable` detects your current public IP and dispatches the [db-access workflow](.github/workflows/db-access.yml) to open 5432 to it; `disable` closes it. Follows the run to completion via `gh run watch`. Requires the `gh` CLI. |
+| [`scripts/local-stack.sh`](scripts/local-stack.sh) | Local stack: Postgres + FusionAuth + a `local.*` hostname edge in Docker (`up`/`down`/`reset`/`status`/`hosts`), mirroring the box topology with kickstarted dev credentials. Run the API (`npm run dev:local`) and web (`npm run dev`) natively against it — see [Running the app locally](#running-the-app-locally). |
+| [`scripts/local.sh`](scripts/local.sh) | Both native dev servers in one terminal: the API (`npm run dev:local`, :3003) and the SPA (`npm run dev`, :5173), output prefixed `[api]`/`[web]`; Ctrl-C stops both. Expects the stack from `./cmd local-stack` to be up. |
 
 ---
 

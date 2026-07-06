@@ -1,0 +1,100 @@
+{
+  "//": [
+    "FusionAuth first-boot provisioning for LOCAL DEV ONLY (scripts/local-stack.sh).",
+    "Runs once against an empty database (`./cmd local-stack reset` to re-run).",
+    "Mirrors what the prod tenant at id.makejohnacoffee.com has by hand:",
+    "the tenant issuer (the API validates id_token iss against AUTH_ISSUER)",
+    "and the poker_equity application — same client id as prod so the code's",
+    "AUTH_CLIENT_ID default works. The OAuth client secret, the two user",
+    "passwords, the JWT signing key id and the kickstart API key are NOT in",
+    "this file: local-stack.sh generates them into",
+    "containers/simulationAPI/.env.local (gitignored) and passes them to the",
+    "container as AUTH_CLIENT_SECRET / LOCAL_ADMIN_PASSWORD /",
+    "LOCAL_PLAYER_PASSWORD / LOCAL_SIGNING_KEY_ID / LOCAL_KICKSTART_API_KEY,",
+    "read below via #{ENV.…}. Everything else here is",
+    "intentionally public and local-only."
+  ],
+  "variables": {
+    "clientId": "c37d57fd-f64d-42fc-bf27-048d658009ca",
+    "appUrl": "http://local.allin.makejohnacoffee.com",
+    "issuer": "http://local.id.makejohnacoffee.com",
+    "signingKeyId": "#{ENV.LOCAL_SIGNING_KEY_ID}"
+  },
+  "apiKeys": [
+    {
+      "key": "#{ENV.LOCAL_KICKSTART_API_KEY}",
+      "description": "local-only API key"
+    }
+  ],
+  "requests": [
+    {
+      "method": "PATCH",
+      "url": "/api/tenant/#{FUSIONAUTH_TENANT_ID}",
+      "body": {
+        "tenant": {
+          "issuer": "#{issuer}"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/user/registration",
+      "body": {
+        "user": {
+          "email": "admin@example.com",
+          "password": "#{ENV.LOCAL_ADMIN_PASSWORD}"
+        },
+        "registration": {
+          "applicationId": "#{FUSIONAUTH_APPLICATION_ID}",
+          "roles": ["admin"]
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/key/generate/#{signingKeyId}",
+      "body": {
+        "key": {
+          "algorithm": "RS256",
+          "name": "local signing key (RS256)",
+          "length": 2048
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/application/#{clientId}",
+      "body": {
+        "application": {
+          "name": "poker_equity (local)",
+          "jwtConfiguration": {
+            "enabled": true,
+            "accessTokenKeyId": "#{signingKeyId}",
+            "idTokenKeyId": "#{signingKeyId}"
+          },
+          "oauthConfiguration": {
+            "clientSecret": "#{ENV.AUTH_CLIENT_SECRET}",
+            "enabledGrants": ["authorization_code"],
+            "authorizedRedirectURLs": ["#{appUrl}/auth/callback"],
+            "logoutURL": "#{appUrl}/",
+            "relationship": "FirstParty",
+            "scopeHandlingPolicy": "Compatibility"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/user/registration",
+      "body": {
+        "user": {
+          "email": "player@example.com",
+          "password": "#{ENV.LOCAL_PLAYER_PASSWORD}"
+        },
+        "registration": {
+          "applicationId": "#{clientId}"
+        }
+      }
+    }
+  ]
+}

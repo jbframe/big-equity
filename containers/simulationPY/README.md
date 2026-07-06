@@ -3,7 +3,8 @@
 The original poker equity simulator — a Monte Carlo simulator for **5-card
 Omaha Hi-Lo (8-or-better)**. Given hero/villain hands and a board, it runs out
 the remaining cards and reports each player's equity. Stdlib-only Python
-(`random`, `itertools`); `requirements.txt` is intentionally empty.
+(`random`, `itertools`); `requirements.txt` intentionally declares no
+dependencies.
 `simulationTS` is a faithful TypeScript port of this code.
 
 ## Prerequisites
@@ -37,7 +38,7 @@ docker run --rm simulationpy
 ## Conda environment (optional)
 
 `be.yml` defines a conda env with analysis extras (numpy, pandas, matplotlib,
-rlcard) that the simulator itself does not need:
+rlcard, bettermdptools) that the simulator itself does not need:
 
 ```sh
 conda env create --name be -f be.yml    # create
