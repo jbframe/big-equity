@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 // Static SPA build.
 export default defineConfig({
@@ -12,5 +12,9 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+  },
+  test: {
+    // Engine tests run in node; DOM tests opt into jsdom per file.
+    environment: "node",
   },
 });
