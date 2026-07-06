@@ -11,12 +11,19 @@
 
 import { z } from "zod";
 import { api } from "./client";
-import type { AuthUser, CreateResultInput, HealthResponse, StoredResult } from "./types";
+import type {
+  AuthUser,
+  CreateResultInput,
+  HealthResponse,
+  Settings,
+  StoredResult,
+} from "./types";
 import {
   authUserSchema,
   createResultInputSchema,
   healthResponseSchema,
   listResultsResponseSchema,
+  settingsSchema,
   storedResultSchema,
 } from "./types";
 
@@ -64,6 +71,14 @@ export const getResult = async (id: number): Promise<StoredResult> =>
   parse(storedResultSchema, await api.get(`/results/${id}`), "result");
 
 export const deleteResult = (id: number) => api.del(`/results/${id}`);
+
+export const fetchSettings = async (): Promise<Settings> =>
+  parse(settingsSchema, await api.get("/settings"), "settings response");
+
+export const updateSettings = async (input: Settings): Promise<Settings> => {
+  const body = parse(settingsSchema, input, "settings to save");
+  return parse(settingsSchema, await api.put("/settings", body), "saved settings");
+};
 
 // Gateway route — served from the SPA's own origin, NOT the api.* host.
 export const fetchMe = async (): Promise<AuthUser> =>

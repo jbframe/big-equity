@@ -23,9 +23,51 @@ body {
   gap: 1rem;
 }
 
-.logout {
+.app-header h1 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.app-nav a {
   color: #555;
   font-size: 0.9rem;
+}
+
+.settings h3 {
+  margin-bottom: 0.25rem;
+}
+
+.settings h3 + p {
+  margin-top: 0;
+}
+
+.app .game-type {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.app .radio-option {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-weight: 400;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .tabs {

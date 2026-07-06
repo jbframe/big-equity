@@ -34,6 +34,20 @@ export const noScoopSchema = z.object({
   low: lowTallySchema,
 });
 
+export const GAME_TYPES = ["big-o", "holdem"] as const;
+export const gameTypeSchema = z.enum(GAME_TYPES);
+
+// Per-user app preferences, keyed by the FusionAuth subject the gateway
+// forwards as x-user-sub. FusionAuth stays the sole user store (ADR-006);
+// this table only hangs preferences off its id.
+export const userSettings = pgTable("user_settings", {
+  userSub: text("user_sub").primaryKey(),
+  gameType: text("game_type", { enum: GAME_TYPES }).notNull().default("big-o"),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .notNull()
+    .defaultNow(),
+});
+
 export const simulationResults = pgTable("simulation_results", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   // Which simulator produced the result, e.g. "simulationTS".

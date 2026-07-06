@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import type { FastifyPluginAsync, onRequestAsyncHookHandler } from "fastify";
 import { healthRoutes } from "./health.js";
 import { resultsRoutes } from "./results.js";
+import { settingsRoutes } from "./settings.js";
 
 // The browser front end lives on a different subdomain (ADR-002), so every
 // backend response needs CORS headers for this origin. Overridable for the
@@ -28,8 +29,14 @@ export const backend: FastifyPluginAsync<BackendOptions> = async (
   opts,
 ) => {
   // credentials lets the SPA send the session cookie cross-origin — the CRUD
-  // routes are useless to it otherwise.
-  await app.register(cors, { origin: [WEB_ORIGIN], credentials: true });
+  // routes are useless to it otherwise. methods must be spelled out: the
+  // plugin's default only covers the CORS-safelisted GET/HEAD/POST, which
+  // makes preflights refuse the PUT (settings) and DELETE (results) routes.
+  await app.register(cors, {
+    origin: [WEB_ORIGIN],
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "DELETE"],
+  });
   await app.register(healthRoutes);
   // The CRUD routes sit behind the gateway's session check; /health stays
   // outside the wall because the compose healthcheck carries no session. The
@@ -38,5 +45,6 @@ export const backend: FastifyPluginAsync<BackendOptions> = async (
     await authed.register(cookie);
     authed.addHook("onRequest", opts.authenticate);
     await authed.register(resultsRoutes);
+    await authed.register(settingsRoutes);
   });
 };
