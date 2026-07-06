@@ -1,10 +1,10 @@
 import { and, desc, eq } from "drizzle-orm";
-import type { FastifyRequest } from "fastify";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { db } from "./db/client.js";
+import { userSub } from "./identity.js";
 import {
   highTallySchema,
   lowTallySchema,
@@ -61,19 +61,6 @@ const listQuerySchema = z.object({
 
 const notFoundSchema = z.object({ message: z.string() });
 
-// The owner of the current request: the signed-in user's `sub`, forwarded by
-// the gateway's session guard as x-user-sub (which also deletes any
-// client-supplied copy, so this can't be spoofed). The guard refuses
-// anonymous callers before any handler runs, so the header is always present
-// here; treat a missing one as a wiring bug rather than an anonymous request.
-function ownerOf(req: FastifyRequest): string {
-  const sub = req.headers["x-user-sub"];
-  if (typeof sub !== "string" || sub.length === 0) {
-    throw new Error("missing x-user-sub; auth guard not installed?");
-  }
-  return sub;
-}
-
 // CRUD for simulation results (ADR-003). Results are immutable records of a
 // batch run, so there is deliberately no update route.
 export async function resultsRoutes(app: FastifyInstance) {
@@ -89,7 +76,7 @@ export async function resultsRoutes(app: FastifyInstance) {
     handler: async (req, reply) => {
       const [row] = await db
         .insert(simulationResults)
-        .values({ ...req.body, ownerSub: ownerOf(req) })
+        .values({ ...req.body, ownerSub: userSub(req) })
         .returning();
       if (!row) {
         throw new Error("insert returned no row");
@@ -109,7 +96,7 @@ export async function resultsRoutes(app: FastifyInstance) {
       const results = await db
         .select()
         .from(simulationResults)
-        .where(eq(simulationResults.ownerSub, ownerOf(req)))
+        .where(eq(simulationResults.ownerSub, userSub(req)))
         .orderBy(desc(simulationResults.createdAt), desc(simulationResults.id))
         .limit(req.query.limit)
         .offset(req.query.offset);
@@ -131,7 +118,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(simulationResults.id, req.params.id),
-            eq(simulationResults.ownerSub, ownerOf(req)),
+            eq(simulationResults.ownerSub, userSub(req)),
           ),
         );
       // Someone else's result is indistinguishable from one that doesn't
@@ -156,7 +143,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(simulationResults.id, req.params.id),
-            eq(simulationResults.ownerSub, ownerOf(req)),
+            eq(simulationResults.ownerSub, userSub(req)),
           ),
         )
         .returning({ id: simulationResults.id });
