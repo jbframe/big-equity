@@ -11,7 +11,11 @@ Fastify HTTP service — a long-running container, unlike the batch simulators
    *derived from the Drizzle table definitions* (`drizzle-zod`), so table
    shape and API shape share one definition. The browser front end at
    `https://allin.makejohnacoffee.com` calls this API on a different
-   subdomain, so CORS is enabled for that origin only.
+   subdomain, so CORS is enabled for that origin only (with credentials, so
+   the session cookie travels along). The CRUD routes sit behind the
+   gateway's session check: an anonymous request gets a `401`, and a valid
+   session is forwarded to the handlers as `x-user-sub` / `x-user-email`
+   headers (client-supplied copies are stripped, so they can't be spoofed).
 
 2. **App gateway** (`allin.makejohnacoffee.com`) — the login wall that guards
    the simulationWeb front end: `src/gateway/auth.ts`
@@ -22,11 +26,14 @@ Fastify HTTP service — a long-running container, unlike the batch simulators
    sole user store — there are no accounts here.
 
 The two roles share this container but not code: each lives in its own
-module (`src/gateway/`, `src/backend/`) that registers its own plugins —
-the cookie support only the gateway uses, the CORS headers only the backend
-needs — and they meet only in `src/app.ts`, the composition root. Splitting
-them into separate containers later is a matter of giving each module its
-own entry point.
+module (`src/gateway/`, `src/backend/`) that registers its own plugins, and
+they meet only in `src/app.ts`, the composition root. Its one piece of
+cross-role wiring is the session guard: the gateway exports `requireSession`
+and the composition root installs it in front of the backend's CRUD routes,
+so the backend never learns how sessions work — it only trusts the
+`x-user-*` headers the guard fills in. Splitting the roles into separate
+containers later is a matter of giving each module its own entry point (the
+guard then becomes a proxy preHandler in the gateway container).
 
 ## Prerequisites
 
@@ -79,15 +86,20 @@ dev-only 5432 toggle for your current IP via the `db-access` workflow;
 | `GET /auth/me` †      | identity or `401`   | Who's signed in (for the SPA)                  |
 | `GET /auth/logout` †  | `302` to FusionAuth | Clear session, end the IdP session             |
 | any other path †      | SPA proxy or `302`  | The login wall: valid session → proxied to `simulationweb:80`; anonymous → `/auth/login` |
-| `POST /results`       | `201` created row  | Store a batch simulator run                    |
-| `GET /results`        | `{results: [...]}` | List runs, newest first (`limit`/`offset`)     |
-| `GET /results/:id`    | row or `404`       | Fetch one run                                  |
-| `DELETE /results/:id` | `204` or `404`     | Remove a run                                   |
+| `POST /results` ‡     | `201` created row  | Store a batch simulator run                    |
+| `GET /results` ‡      | `{results: [...]}` | List runs, newest first (`limit`/`offset`)     |
+| `GET /results/:id` ‡  | row or `404`       | Fetch one run                                  |
+| `DELETE /results/:id` ‡ | `204` or `404`   | Remove a run                                   |
 
 † Gateway routes: registered with a
 Fastify `host` constraint for `allin.makejohnacoffee.com` — on the api
 hostname they don't exist (404). They're same-origin with the SPA, so they
 need no CORS; the results API stays CORS-restricted to the web origin.
+
+‡ Session-gated: the gateway's session cookie (scoped to the parent domain
+so it reaches the api hostname too) must be valid, or the request gets a
+`401` before any handler runs. The signed-in user arrives in the handlers as
+`x-user-sub` / `x-user-email` headers.
 
 Results are immutable records of a batch run, so there is deliberately no
 update route.
@@ -100,7 +112,7 @@ update route.
 | `src/app.ts`                | Composition root: zod compilers + registers the two role modules |
 | `src/gateway/index.ts`      | Gateway module entry: cookie plugin + auth routes     |
 | `src/gateway/auth.ts`       | App gateway: OIDC routes, session cookie, SPA login-wall proxy |
-| `src/backend/index.ts`      | Backend module entry: CORS + health + results routes  |
+| `src/backend/index.ts`      | Backend module entry: CORS + health + session-gated results routes |
 | `src/backend/health.ts`     | `GET /health` route + zod schema                      |
 | `src/backend/results.ts`    | CRUD routes; zod schemas derived from the table       |
 | `src/backend/db/schema.ts`  | Drizzle table definitions + shared tally schemas      |
@@ -146,7 +158,7 @@ graph TB
     Main -- "runs before listen" --> Migrate
     App -- "registers" --> Health
     App -- "registers" --> Gateway
-    App -- "registers" --> Results
+    App -- "registers behind the<br/>gateway's session guard" --> Results
     Gateway -. "OIDC: authorize/logout redirects;<br/>back-channel code→token, JWKS<br/>HTTP :9011" .-> Auth
     Gateway -- "Proxies every non-/auth path<br/>when the session is valid<br/>HTTP :80" --> Web
     Results -- "insert / select / delete" --> Client
