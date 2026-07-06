@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "dev:local": "tsx watch --env-file=.env.local src/main.ts",
     "start": "node dist/main.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",

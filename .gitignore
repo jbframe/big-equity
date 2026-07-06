@@ -6,4 +6,5 @@ __pycache__/
 
 # Secrets / local env
 .env
+.env.local
 *.pem

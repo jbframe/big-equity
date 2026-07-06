@@ -65,7 +65,9 @@ const TX_TTL = "10m";
 
 const cookieBase = {
   httpOnly: true,
-  secure: true,
+  // Tracks the app scheme: https (prod default) keeps Secure; the plain-http
+  // local.* aliases (scripts/local-stack.sh) would never see a Secure cookie.
+  secure: APP_URL.startsWith("https:"),
   sameSite: "lax" as const,
   path: "/",
   domain: COOKIE_DOMAIN,

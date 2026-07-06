@@ -5,8 +5,10 @@ import { healthRoutes } from "./health.js";
 import { resultsRoutes } from "./results.js";
 
 // The browser front end lives on a different subdomain (ADR-002), so every
-// backend response needs CORS headers for this origin.
-export const WEB_ORIGIN = "https://allin.makejohnacoffee.com";
+// backend response needs CORS headers for this origin. Overridable for the
+// local.* aliases (scripts/local-stack.sh).
+export const WEB_ORIGIN =
+  process.env["WEB_ORIGIN"] ?? "https://allin.makejohnacoffee.com";
 
 export interface BackendOptions {
   // Guard installed in front of every CRUD route. Injected by the
