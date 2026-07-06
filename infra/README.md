@@ -170,17 +170,12 @@ edited by hand.)
 
 ```bash
 gh variable set AWS_ROLE_ARN --body "<role_arn from bootstrap>"
-gh variable set MY_IP_CIDR   --body "$(curl -s -4 ifconfig.me)/32"
 ```
 
-> Use `curl -4` — the security group's SSH rule is IPv4-only, so an IPv6 address
-> here breaks the apply. `MY_IP_CIDR` only takes effect when `ssh_open = false`
-> (see [step 5](#5-provision-the-box)); it's still required as a variable because
-> the terraform pipeline always passes it.
-
-**Secrets** (used by the deploy pipeline):
+**Secrets** (used by the terraform and deploy pipelines):
 
 ```bash
+gh secret set MY_IP_CIDR --body "$(curl -s -4 ifconfig.me)/32"   # home IP — terraform pipeline; see note below
 gh secret set EC2_SSH_KEY < ~/.ssh/ec2_deploy_key   # the PRIVATE key
 gh secret set GHCR_PAT    --body "<a read:packages PAT>"
 gh secret set DBADMIN_PASSWORD --body "<db superuser password>"        # Postgres cluster superuser (ADR-008)
@@ -190,6 +185,13 @@ gh secret set FUSIONAUTH_CLIENT_SECRET --body "<poker_equity client secret>" # S
 gh secret set SESSION_SECRET --body "$(openssl rand -base64 32)"       # session-cookie signing key (ADR-007)
 # EC2_HOST is set after the box exists — see next step.
 ```
+
+> For `MY_IP_CIDR`, use `curl -4` — the security group's SSH rule is IPv4-only,
+> so an IPv6 address here breaks the apply. It only takes effect when
+> `ssh_open = false` (see [step 5](#5-provision-the-box)), but it's still
+> required because the terraform pipeline always passes it. It's a secret, not
+> a variable, so your home IP stays out of plan output and CI logs
+> (`sensitive = true` in [`variables.tf`](variables.tf)).
 
 > `GHCR_PAT` is a [Personal Access Token](https://github.com/settings/tokens)
 > with **`read:packages`** scope, so the EC2 box can pull private images from
@@ -262,9 +264,11 @@ Setup done. ✅
 
 - **Change a container** → push to `main` → `deploy` builds a new image, pushes
   it to GHCR, SSHes in, and runs `docker compose up -d`.
-- **Change infrastructure** → open a PR touching `infra/**` → review the
-  `terraform plan` → merge → `terraform apply` runs (gated by the `production`
-  environment approval).
+- **Change infrastructure** → merge to `main` touching `infra/**` → the
+  `terraform` workflow waits on the `production` environment approval, then
+  runs `plan` and `apply` back-to-back in the approved job. Nothing runs on
+  the PR itself, and the approval comes *before* the plan — so review the
+  diff (or a local `terraform plan`) before merging.
 
 Roll back a container by re-running the deploy pipeline against an older commit,
 or on the box: `cd ~/containers/<name> && IMAGE=ghcr.io/YOURUSER/big-equity/<name>:<old-sha> docker compose up -d`.
@@ -284,8 +288,10 @@ template and rebuild, so the box always matches the repo. (Proxy/TLS routing is
 a normal deploy.)
 
 **Rebuild via CI** (the normal path): push the `infra/**` change to `main` (or
-merge the PR), review the plan — it should show `aws_instance.app` being
-*replaced* — and approve the apply.
+merge the PR) and approve the gated `terraform` run. The approval covers the
+whole job (plan + apply run back-to-back), so check what will happen *before*
+merging — a local `terraform plan` should show `aws_instance.app` being
+*replaced*.
 
 **Rebuild locally**, or force one with no config change (e.g. the box is in a
 bad state):
@@ -315,8 +321,9 @@ After the apply finishes:
 3. Redeploy all containers: `gh workflow run deploy.yml`. This includes the
    reverseProxy edge (ADR-009), which issues fresh TLS certificates on arrival
    — nothing serves 80/443 until it's up.
-4. Verify: `curl -I https://allin.makejohnacoffee.com` returns `200` (and
-   `curl -I http://…` returns a `301` to https),
+4. Verify: `curl -I https://allin.makejohnacoffee.com` returns a `302` to
+   `/auth/login` (the ADR-007 login wall — a browser lands on the FusionAuth
+   hosted login), `curl -I http://…` returns a `301` to https,
    `curl https://api.makejohnacoffee.com/health` returns `{"status":"ok"}`, and
    `curl https://id.makejohnacoffee.com/api/status` returns FusionAuth's status
    JSON (ADR-006).
@@ -328,8 +335,9 @@ After the apply finishes:
 **OIDC instead of stored AWS keys.** The terraform pipeline requests an OIDC
 token from GitHub (`permissions: id-token: write`). AWS trusts that token via
 the IAM role created in bootstrap, whose trust policy is scoped to
-`repo:YOURUSER/big-equity:*`. The role hands back short-lived credentials — no
-AWS access keys ever live in GitHub.
+`repo:YOURUSER/big-equity:environment:production` — only workflow runs in the
+`production` environment can assume it. The role hands back short-lived
+credentials — no AWS access keys ever live in GitHub.
 
 **Remote state in S3.** Because CI runners are ephemeral, state lives in the S3
 bucket (versioned + encrypted) with `use_lockfile = true` for concurrency
@@ -355,7 +363,7 @@ Ports 80/443 are open by default (`open_web = true`; set it `false` for
 non-web batch workloads), and land on `containers/reverseProxy/` — nginx +
 certbot in one image, the only container with host ports. It terminates TLS
 and routes by hostname over `simulation-net`: `app_domain` (default
-`allin.makejohnacoffee.com`) to `simulationweb:80`, `api_domain` (default
+`allin.makejohnacoffee.com`) and `api_domain` (default
 `api.makejohnacoffee.com`) to `simulationapi:3003`, and `auth_domain` (default
 `id.makejohnacoffee.com`, ADR-006) to `fusionauth:9011`. The `app_domain`
 vhost routes wholesale to simulationAPI, the app gateway
@@ -399,7 +407,8 @@ docker-network-only in normal operation. For temporary developer access, run
 the `db-access` workflow (Actions → db-access → Run workflow) with
 `action: enable` and your IP as a CIDR (`x.x.x.x/32` — `0.0.0.0/0` is
 refused). It opens 5432 on the security group for that CIDR via an
-OIDC-assumed role scoped to just the two SG calls, drops a
+OIDC-assumed role scoped to the two SG ingress calls (plus
+`ec2:DescribeSecurityGroups`, which the disable path needs), drops a
 `docker-compose.override.yml` publishing the port, and you connect at
 `db.makejohnacoffee.com:5432` (point that A record at the Elastic IP once;
 Postgres isn't HTTP, so nginx is not in the path). Run it again with

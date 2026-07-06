@@ -64,6 +64,14 @@ docker exec reverseproxy certbot certificates   # what's issued, expiry dates
 curl -fsS http://localhost/healthz  # on the box: edge liveness
 ```
 
+## Local development
+
+This container itself doesn't run locally. The local dev stack
+(`./cmd local-stack` — see the root README) runs a plain `nginx:alpine`
+"edge" container as its stand-in: the same hostname routing for the
+`local.*` names (`scripts/local-stack/nginx.conf`), but plain HTTP on
+`127.0.0.1:80` — no TLS, no certbot, no rate limiting.
+
 ## Deployment
 
 Ships through `deploy.yml` like everything else: the Dockerfile builds to

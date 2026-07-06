@@ -23,8 +23,11 @@ Built as a static site served by nginx (see `Dockerfile`). The repo's deploy
 pipeline auto-discovers any `containers/<name>/` with a Dockerfile, so pushing
 to `main` ships it. Unlike the batch-job sims this is a long-running service:
 `docker-compose.yml` uses `restart: unless-stopped` and publishes no host
-ports — the reverseProxy container
-([ADR-009](../../docs/adr/009-reverse-proxy-container.md)) reaches
-`simulationweb:80` over `simulation-net` and serves it at
-**https://allin.makejohnacoffee.com** (TLS via Let's Encrypt — see
+ports. It's served at **https://allin.makejohnacoffee.com**, but the
+reverseProxy edge ([ADR-009](../../docs/adr/009-reverse-proxy-container.md))
+never talks to this container directly: it routes the `allin.…` vhost
+wholesale to simulationAPI, the app gateway
+([ADR-010](../../docs/adr/010-gateway-in-simulationapi.md)), which enforces
+the FusionAuth login wall and proxies valid sessions through to
+`simulationweb:80` over `simulation-net` (TLS via Let's Encrypt — see
 [ADR-001](../../docs/adr/001-expose-simulationweb.md)).

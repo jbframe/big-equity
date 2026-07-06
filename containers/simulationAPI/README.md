@@ -193,8 +193,9 @@ plus per-IP rate limiting at the proxy (10 r/s, burst 20, 429 on excess). The
 and forwards it to the SPA behind the session check.
 
 The deploy pipeline also writes the OIDC config into `.env`: `AUTH_ISSUER`,
-`AUTH_CLIENT_ID`, `AUTH_REDIRECT_URI`, `AUTH_APP_URL`, plus the two secrets
-`FUSIONAUTH_CLIENT_SECRET` (the `poker_equity` client secret) and
-`SESSION_SECRET` (the session-cookie signing key) from GitHub secrets. The
+`AUTH_CLIENT_ID`, `AUTH_REDIRECT_URI`, `AUTH_APP_URL`, plus two values from
+GitHub secrets — `AUTH_CLIENT_SECRET` (the `poker_equity` client secret, from
+the `FUSIONAUTH_CLIENT_SECRET` secret) and `SESSION_SECRET` (the
+session-cookie signing key). The
 SPA upstream defaults to `http://simulationweb:80` in code (`WEB_UPSTREAM`
 overrides it, which the tests use).

@@ -19,7 +19,7 @@ Technology choices follow the defaults in
 | `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
 | `simulationAPI` | Dual-role Fastify service (TypeScript, zod-validated routes): CRUD backend for simulationDB on `api.…` **and** app gateway / login wall for the SPA on `allin.…`. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
-| `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; simulationAPI is its sole client. | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
+| `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; its clients are simulationAPI (app data) and fusionAuth (its own `fusionauth` database). | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
 | `fusionAuth` | Self-hosted identity provider (upstream `fusionauth/fusionauth-app`, no Dockerfile). Reuses simulationDB (its own `fusionauth` database, no bundled Postgres); OpenSearch off (`SEARCH_TYPE=database`). | [containers/fusionAuth/README.md](containers/fusionAuth/README.md) |
 | `reverseProxy` | The public edge: nginx + certbot in one image. Terminates TLS for all three hostnames on 80/443, routes to the other containers over `simulation-net`, and owns the Let's Encrypt issue/renew loop. | [containers/reverseProxy/README.md](containers/reverseProxy/README.md) |
 
@@ -55,9 +55,10 @@ simulationAPI, the app gateway:
 graph TB
     User["👤 <b>User</b><br/>[Person]<br/>Poker player in a browser<br/>allin.makejohnacoffee.com"]
     APIClient["👤 <b>API client</b><br/>[Person]<br/>Direct REST consumer<br/>api.makejohnacoffee.com"]
+    Operator["👤 <b>Operator</b><br/>[Person]<br/>FusionAuth admin UI<br/>id.makejohnacoffee.com"]
     LE["<b>Let's Encrypt</b><br/>[Software System]<br/>ACME certificate authority"]
 
-    subgraph EC2["EC2 Docker host · simulation-net"]
+    subgraph EC2["EC2 Docker host · t3.micro · Amazon Linux 2023 (latest via SSM) · simulation-net"]
         Proxy["<b>reverseProxy</b><br/>[Container: nginx + certbot]<br/>Public edge — the only container with host<br/>ports (80/443); TLS for all three hostnames,<br/>hostname routing, cert issue/renew"]
         API["<b>simulationAPI</b><br/>[Container: Node.js, Fastify]<br/>Data API (api.…) and app gateway /<br/>login wall for the SPA (allin.…)"]
         Web["<b>simulationWeb</b><br/>[Container: React SPA on nginx]<br/>Static front-end; reachable only<br/>through simulationAPI's gateway"]
@@ -67,20 +68,21 @@ graph TB
         TS["<b>simulationTS</b><br/>[Container: Node.js]<br/>Batch Omaha Hi-Lo simulator;<br/>no network exposure"]
     end
 
-    User -- "HTTPS · allin.… / id.…" --> Proxy
+    User -- "HTTPS · allin.…<br/>(and id.… for hosted login)" --> Proxy
     APIClient -- "HTTPS · api.…" --> Proxy
+    Operator -- "HTTPS · id.…" --> Proxy
     Proxy -- "ACME HTTP-01<br/>cert issue + renew" --> LE
     Proxy -- "Proxies allin.… and api.…<br/>HTTP :3003" --> API
     Proxy -- "Proxies id.…<br/>HTTP :9011" --> Auth
     API -- "Proxies the SPA when<br/>the session is valid · HTTP :80" --> Web
-    API -. "OIDC back-channel:<br/>code→token, JWKS · HTTP :9011" .-> Auth
+    API -. "OIDC back-channel: code→token, JWKS<br/>HTTPS · id.… (back through the edge)" .-> Auth
     API -- "Reads/writes app data<br/>postgres :5432" --> DB
     Auth -- "Own fusionauth database<br/>postgres :5432" --> DB
 
     classDef person fill:#08427b,stroke:#3b82f6,color:#ffffff
     classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
     classDef external fill:#686868,stroke:#8a8a8a,color:#ffffff
-    class User,APIClient person
+    class User,APIClient,Operator person
     class Proxy,API,Web,Auth,DB,PY,TS container
     class LE external
     style EC2 fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#94a3b8
@@ -174,7 +176,7 @@ Caveats:
 ├── docs/                    # ADRs (docs/adr/), stories (docs/stories/), steering docs (docs/steering/)
 ├── infra/                   # Terraform + deployment — see infra/README.md
 ├── scripts/                 # operator tooling, run from your machine
-└── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship)
+└── .github/workflows/       # infra.yml (terraform), deploy.yml (build + ship), db-access.yml (DB dev-access toggle)
 ```
 
 ---
