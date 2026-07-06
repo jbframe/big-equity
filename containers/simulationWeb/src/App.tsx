@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { toApiCards } from "./api/cards";
 import { UnauthorizedError } from "./api/client";
-import { createResult } from "./api/endpoints";
+import { createResult, fetchSettings } from "./api/endpoints";
+import { GAMES, cacheGameType, loadCachedGameType } from "./gameType";
 import PastResults from "./PastResults";
-import { Results } from "./Results";
+import { HoldemResults, Results } from "./Results";
 import { parseHand } from "./sim/cards";
+import type { HoldemSimulationResult } from "./sim/holdem";
+import { simulateHoldemBoard } from "./sim/holdem";
 import type { SimulationResult } from "./sim/simulation";
 import { simulateBoard } from "./sim/simulation";
-
-const DEFAULT_HERO = "Ad 5d 4s Ks Tc";
-const DEFAULT_VILLAIN = "Ah Ac Kd 4c 2h";
-const DEFAULT_BOARD = "3s 9d Js";
 
 function splitCards(raw: string): string[] {
   return raw
@@ -21,13 +21,16 @@ function splitCards(raw: string): string[] {
 }
 
 // A finished run keeps the inputs that produced it, so saving stays correct
-// even after the form is edited.
-interface CompletedRun {
-  result: SimulationResult;
+// even after the form is edited. The game type is captured too: only Big O
+// runs can be saved (the backend contract is Hi-Lo-specific).
+type CompletedRun = {
   heroHand: string[];
   villainHand: string[];
   board: string[];
-}
+} & (
+  | { gameType: "big-o"; result: SimulationResult }
+  | { gameType: "holdem"; result: HoldemSimulationResult }
+);
 
 type SaveState =
   | { status: "idle" | "saving" | "saved" }
@@ -36,23 +39,56 @@ type SaveState =
 type Tab = "simulator" | "past";
 
 export default function App() {
+  // Render with the cached game type immediately, then reconcile with the
+  // server (source of truth) — another device may have changed it. Falls back
+  // to the cache silently when the fetch fails.
+  const [gameType, setGameType] = useState(() => loadCachedGameType());
+  const game = GAMES[gameType];
+
   const [tab, setTab] = useState<Tab>("simulator");
-  const [hero, setHero] = useState(DEFAULT_HERO);
-  const [villain, setVillain] = useState(DEFAULT_VILLAIN);
-  const [board, setBoard] = useState(DEFAULT_BOARD);
+  const [hero, setHero] = useState(game.defaultHero);
+  const [villain, setVillain] = useState(game.defaultVillain);
+  const [board, setBoard] = useState(game.defaultBoard);
   const [simulations, setSimulations] = useState(10_000);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<CompletedRun | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchSettings()
+      .then(({ gameType: serverGameType }) => {
+        // `gameType` here is the mount-time cached value: this effect runs
+        // once and nothing else changes the game type within this page.
+        if (cancelled || serverGameType === gameType) return;
+        cacheGameType(serverGameType);
+        // Hand sizes differ between games, so a stale form can't carry over.
+        const next = GAMES[serverGameType];
+        setGameType(serverGameType);
+        setHero(next.defaultHero);
+        setVillain(next.defaultVillain);
+        setBoard(next.defaultBoard);
+        setError(null);
+        setLastRun(null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function validate(): string | null {
     const heroCards = splitCards(hero);
     const villainCards = splitCards(villain);
     const boardCards = splitCards(board);
 
-    if (heroCards.length !== 5) return "Hero hand must have exactly 5 cards.";
-    if (villainCards.length !== 5) return "Villain hand must have exactly 5 cards.";
+    if (heroCards.length !== game.handSize) {
+      return `Hero hand must have exactly ${game.handSize} cards.`;
+    }
+    if (villainCards.length !== game.handSize) {
+      return `Villain hand must have exactly ${game.handSize} cards.`;
+    }
     if (boardCards.length > 5) return "Board can have at most 5 cards.";
 
     let parsed: string[];
@@ -83,12 +119,20 @@ export default function App() {
       const villainHand = splitCards(villain);
       const boardCards = splitCards(board);
       try {
-        setLastRun({
-          result: simulateBoard(heroHand, villainHand, boardCards, simulations),
-          heroHand,
-          villainHand,
-          board: boardCards,
-        });
+        const inputs = { heroHand, villainHand, board: boardCards };
+        setLastRun(
+          gameType === "holdem"
+            ? {
+                gameType,
+                result: simulateHoldemBoard(heroHand, villainHand, boardCards, simulations),
+                ...inputs,
+              }
+            : {
+                gameType,
+                result: simulateBoard(heroHand, villainHand, boardCards, simulations),
+                ...inputs,
+              },
+        );
         setSaveState({ status: "idle" });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -100,7 +144,7 @@ export default function App() {
   }
 
   async function save() {
-    if (!lastRun) return;
+    if (!lastRun || lastRun.gameType !== "big-o") return;
     setSaveState({ status: "saving" });
     try {
       await createResult({
@@ -123,13 +167,11 @@ export default function App() {
   }
 
   return (
-    <main className="app">
-      <header className="app-header">
-        <h1>Poker Hi-Lo Equity</h1>
-        <a className="logout" href="/auth/logout">
-          Log out
-        </a>
-      </header>
+    <>
+      <p className="hint">
+        Game: <strong>{game.label}</strong> ({game.description}) ·{" "}
+        <Link to="/settings">change</Link>
+      </p>
       <div className="tabs" role="tablist" aria-label="Views">
         <button
           type="button"
@@ -173,11 +215,11 @@ export default function App() {
             }}
           >
             <label>
-              Hero hand (5 cards)
+              Hero hand ({game.handSize} cards)
               <input value={hero} onChange={(e) => setHero(e.target.value)} />
             </label>
             <label>
-              Villain hand (5 cards)
+              Villain hand ({game.handSize} cards)
               <input value={villain} onChange={(e) => setVillain(e.target.value)} />
             </label>
             <label>
@@ -203,25 +245,31 @@ export default function App() {
 
           {lastRun && !running && (
             <>
-              <Results result={lastRun.result} />
-              <div className="save">
-                <button
-                  type="button"
-                  onClick={() => void save()}
-                  disabled={saveState.status === "saving" || saveState.status === "saved"}
-                >
-                  {saveState.status === "saving"
-                    ? "Saving…"
-                    : saveState.status === "saved"
-                      ? "Saved ✓"
-                      : "Save result"}
-                </button>
-                {saveState.status === "error" && <p className="error">{saveState.message}</p>}
-              </div>
+              {lastRun.gameType === "holdem" ? (
+                <HoldemResults result={lastRun.result} />
+              ) : (
+                <Results result={lastRun.result} />
+              )}
+              {lastRun.gameType === "big-o" && (
+                <div className="save">
+                  <button
+                    type="button"
+                    onClick={() => void save()}
+                    disabled={saveState.status === "saving" || saveState.status === "saved"}
+                  >
+                    {saveState.status === "saving"
+                      ? "Saving…"
+                      : saveState.status === "saved"
+                        ? "Saved ✓"
+                        : "Save result"}
+                  </button>
+                  {saveState.status === "error" && <p className="error">{saveState.message}</p>}
+                </div>
+              )}
             </>
           )}
         </div>
       )}
-    </main>
+    </>
   );
 }

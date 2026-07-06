@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import type { GameType } from "../gameType";
 import type { SimulationResult } from "../sim/simulation";
 
 /**
@@ -63,6 +64,11 @@ export const listResultsResponseSchema = z.object({
   results: z.array(storedResultSchema),
 });
 
+// Mirrors gameTypeSchema/settingsSchema in
+// containers/simulationAPI/src/backend/settings.ts and db/schema.ts.
+export const gameTypeSchema = z.enum(["big-o", "holdem"]);
+export const settingsSchema = z.object({ gameType: gameTypeSchema });
+
 export const authUserSchema = z.object({
   sub: z.string(),
   email: z.string().nullable(),
@@ -74,6 +80,7 @@ export const healthResponseSchema = z.object({ status: z.literal("ok") });
 export type ApiCard = z.infer<typeof apiCardSchema>;
 export type StoredResult = z.infer<typeof storedResultSchema>;
 export type CreateResultInput = z.infer<typeof createResultInputSchema>;
+export type Settings = z.infer<typeof settingsSchema>;
 export type AuthUser = z.infer<typeof authUserSchema>;
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
@@ -81,3 +88,10 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 // result type, so `...simulationResult` spreads keep satisfying the contract.
 const _simResultMatchesWire: SimulationResult = {} as CreateResultInput;
 void _simResultMatchesWire;
+
+// Same idea for the game type: the wire enum and the UI's GameType union
+// must stay interchangeable in both directions.
+const _wireGameTypeMatchesUi: GameType = {} as Settings["gameType"];
+const _uiGameTypeMatchesWire: Settings["gameType"] = {} as GameType;
+void _wireGameTypeMatchesUi;
+void _uiGameTypeMatchesWire;

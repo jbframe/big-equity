@@ -1,7 +1,27 @@
+import type { HoldemSimulationResult } from "./sim/holdem";
 import type { SimulationResult } from "./sim/simulation";
 
 const pct = (n: number, total: number): string =>
   total === 0 ? "0.00" : ((n / total) * 100).toFixed(2);
+
+export function HoldemResults({ result }: { result: HoldemSimulationResult }) {
+  const { simulations: sims, heroWins, villainWins, ties } = result;
+
+  return (
+    <section className="results">
+      <h2>
+        Hero equity: <strong>{result.heroEquity.toFixed(3)}%</strong>
+      </h2>
+      <p className="hint">{sims.toLocaleString()} simulations</p>
+
+      <h3>Showdown</h3>
+      <p>
+        Hero wins {pct(heroWins, sims)}% · Villain wins {pct(villainWins, sims)}% · Ties{" "}
+        {pct(ties, sims)}%
+      </p>
+    </section>
+  );
+}
 
 export function Results({ result }: { result: SimulationResult }) {
   const { simulations: sims, high, low, scoop, noScoop } = result;

@@ -8,6 +8,13 @@
       "when": 1783070610090,
       "tag": "0000_simulation-results",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783327818912,
+      "tag": "0001_user-settings",
+      "breakpoints": true
     }
   ]
 }
