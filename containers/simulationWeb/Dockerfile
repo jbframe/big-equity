@@ -9,6 +9,9 @@ RUN npm ci
 
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
+# Vite envs are baked at build time; this is the API origin the SPA calls.
+ARG VITE_API_BASE_URL=https://api.makejohnacoffee.com
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 # Runtime stage: nginx serves the static bundle. No node, no app deps shipped.
