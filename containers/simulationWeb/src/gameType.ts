@@ -24,7 +24,7 @@ export const GAMES: Record<GameType, GameConfig> = {
     handSize: 5,
     defaultHero: "4c 4d 5c Kh 3c",
     defaultVillain: "Ad 2h 4s Qc 10s",
-    defaultBoard: "2d 3s 9d 6c As",
+    defaultBoard: "2d 3s 9d 6c",
   },
   holdem: {
     label: "No Limit Hold'em",

@@ -15,13 +15,16 @@ Technology choices follow the defaults in
 
 | Container | Summary | Readme |
 | --- | --- | --- |
-| `simulationPY` | Poker equity simulator — given hero/villain hands and a board, it runs out the remaining cards and reports each player's equity. Stdlib-only Python. | [containers/simulationPY/README.md](containers/simulationPY/README.md) |
-| `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
 | `simulationAPI` | Dual-role Fastify service (TypeScript, zod-validated routes): CRUD backend for simulationDB on `api.…` **and** app gateway (OIDC login + SPA proxy; login optional) on `allin.…`. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
 | `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; its clients are simulationAPI (app data) and fusionAuth (its own `fusionauth` database). | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
 | `fusionAuth` | Self-hosted identity provider (upstream `fusionauth/fusionauth-app`, no Dockerfile). Reuses simulationDB (its own `fusionauth` database, no bundled Postgres); OpenSearch off (`SEARCH_TYPE=database`). | [containers/fusionAuth/README.md](containers/fusionAuth/README.md) |
 | `reverseProxy` | The public edge: nginx + certbot in one image. Terminates TLS for all three hostnames on 80/443, routes to the other containers over `simulation-net`, and owns the Let's Encrypt issue/renew loop. | [containers/reverseProxy/README.md](containers/reverseProxy/README.md) |
+
+> **Note:** two earlier batch simulators, `simulationPY` (stdlib-only Python)
+> and `simulationTS` (its TypeScript rewrite), have been removed — the
+> browser-side engine in `simulationWeb` superseded them. They last existed at
+> commit [`54d6020`](https://github.com/jbframe/big-equity/tree/54d6020860f971e6c0815ff8b3c4e31fefb496ce/containers).
 
 ### `simulation-net`
 
@@ -36,8 +39,6 @@ that publishes host ports.
 
 | Container | Exposed | URL |
 | --- | --- | --- |
-| `simulationPY` | No | Internal only |
-| `simulationTS` | No | Internal only |
 | `simulationWeb` | Via proxy | https://allin.makejohnacoffee.com — public; FusionAuth login is optional (needed only to save results); no host ports, Docker network only |
 | `simulationAPI` | Via proxy | https://api.makejohnacoffee.com; also serves the whole `allin.…` vhost as the SPA's app gateway; no host ports |
 | `simulationDB` | No | Docker network only; dev-only public-access toggle via `./cmd db-access` |
@@ -64,8 +65,6 @@ graph TB
         Web["<b>simulationWeb</b><br/>[Container: React SPA on nginx]<br/>Static front-end; reachable only<br/>through simulationAPI's gateway"]
         Auth["<b>fusionAuth</b><br/>[Container: FusionAuth, JVM]<br/>Identity provider (id.…): hosted<br/>login, OIDC, admin UI"]
         DB[("<b>simulationDB</b><br/>[Container: PostgreSQL 18]<br/>App data plus FusionAuth's own<br/>database; Docker network only")]
-        PY["<b>simulationPY</b><br/>[Container: Python]<br/>Batch equity simulator;<br/>no network exposure"]
-        TS["<b>simulationTS</b><br/>[Container: Node.js]<br/>Batch Omaha Hi-Lo simulator;<br/>no network exposure"]
     end
 
     User -- "HTTPS · allin.…<br/>(and id.… for hosted login)" --> Proxy
@@ -83,7 +82,7 @@ graph TB
     classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
     classDef external fill:#686868,stroke:#8a8a8a,color:#ffffff
     class User,APIClient,Operator person
-    class Proxy,API,Web,Auth,DB,PY,TS container
+    class Proxy,API,Web,Auth,DB container
     class LE external
     style EC2 fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#94a3b8
 
@@ -214,7 +213,7 @@ automatically.
 ## Adding another container
 
 1. Create `containers/<newname>/` with a `Dockerfile` and a `docker-compose.yml`
-   (copy `simulationPY`'s as a template; point the compose `image` default at
+   (copy `simulationWeb`'s as a template; point the compose `image` default at
    `ghcr.io/YOURUSER/big-equity/<newname>` — lowercased, GHCR requires it).
    Running an upstream image instead? Skip the Dockerfile — a compose-only
    directory deploys without the build step (like `simulationDB`).

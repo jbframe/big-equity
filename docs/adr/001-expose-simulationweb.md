@@ -4,7 +4,7 @@ Date: 2026-07-02
 
 ## Requirements
 - Expose simulationWeb to the internet at `https://allin.makejohnacoffee.com`
-- Keep other containers (simulationPY, simulationTS) private by default
+- Keep the other containers (the batch simulators) private by default
 - Support hostname/subdomain-based routing for selective exposure of future containers
 - DNS already points to EC2 IP (35.169.127.234)
 
@@ -68,8 +68,7 @@ graph TD
         subgraph Docker["Docker containers"]
             direction LR
             Web["<b>simulationWeb</b><br/>:8080 · 🌍 exposed"]
-            PY["simulationPY<br/>:3001 · 🔒 private"]
-            TS["simulationTS<br/>:3002 · 🔒 private"]
+            Batch["batch simulators<br/>🔒 private"]
         end
 
         Nginx -- "proxy_pass<br/>localhost:8080" --> Web
@@ -89,8 +88,7 @@ graph TD
     style Port443 fill:#3d2109,stroke:#f97316,stroke-width:2px,color:#ffffff
     style Nginx fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style Web fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
-    style PY fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
-    style TS fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
+    style Batch fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
     style Certbot fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
     style Certs fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff
     style Timer fill:#2e1065,stroke:#a855f7,stroke-width:2px,color:#ffffff

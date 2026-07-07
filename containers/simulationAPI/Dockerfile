@@ -15,9 +15,9 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-# Runtime stage: unlike simulationTS, Fastify and friends are runtime deps, so
-# this stage needs production node_modules — `npm ci --omit=dev` requires the
-# lockfile alongside package.json.
+# Runtime stage: Fastify and friends are runtime deps, so this stage needs
+# production node_modules — `npm ci --omit=dev` requires the lockfile
+# alongside package.json.
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runtime
 
 WORKDIR /app
