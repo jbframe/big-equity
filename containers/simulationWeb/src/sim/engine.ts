@@ -182,13 +182,17 @@ export function simulate(
 
   // Hero's pot equity: scoops win the whole pot; split runouts award half the
   // high pot and half the low pot, with split high/low counting as a quarter.
+  // A no-scoop runout with no qualifying low is always a high split (a sole
+  // high winner would have scooped), and with no low pot the high pot is the
+  // whole pot: half each, so a quarter on top of the high-split quarter.
   const noScoopShare =
     scoop.none === 0
       ? 0
       : (0.5 * nsHigh.heroWins +
           0.25 * nsHigh.splits +
           0.5 * nsLow.heroWins +
-          0.25 * nsLow.splits) /
+          0.25 * nsLow.splits +
+          0.25 * nsLow.noLow) /
         simulations;
 
   const heroEquity = (scoop.hero / simulations + noScoopShare) * 100;

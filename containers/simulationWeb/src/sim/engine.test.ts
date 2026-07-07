@@ -52,6 +52,23 @@ test("big-o: hero with an unbeatable high and no possible low scoops every runou
   expect(r.low.noLow).toBe(100);
 });
 
+// Regression: this case used to credit Hero a quarter pot instead of half.
+test("big-o: a split high with no qualifying low awards half the whole pot", () => {
+  // Full 5-card board, so the result is exact. Both players' best high is a
+  // pair of aces with K-Q-J board kickers — a true tie — and the board has no
+  // 8-or-lower cards, so no low pot exists: the high pot is the whole pot.
+  const hero = ["Ah", "Ac", "2d", "3h", "4s"];
+  const villain = ["As", "Ad", "2h", "3s", "4d"];
+  const board = ["Ks", "Qc", "Jd", "Th", "9c"];
+
+  const r = simulate("big-o", hero, villain, board, 100);
+
+  expect(r.high.splits).toBe(100);
+  expect(r.low.noLow).toBe(100);
+  expect(r.scoop.none).toBe(100);
+  expect(r.heroEquity).toBe(50);
+});
+
 test("big-o: equity converges near the reference value for the example matchup", () => {
   // simulationTS main.ts example: hero equity lands around 53%.
   const r = simulate("big-o", HERO, VILLAIN, ["3s", "9d", "Js"], 5000, seededRng(7));
