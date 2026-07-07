@@ -70,7 +70,7 @@ test("big-o: a split high with no qualifying low awards half the whole pot", () 
 });
 
 test("big-o: equity converges near the reference value for the example matchup", () => {
-  // simulationTS main.ts example: hero equity lands around 53%.
+  // Reference matchup: hero equity lands around 53%.
   const r = simulate("big-o", HERO, VILLAIN, ["3s", "9d", "Js"], 5000, seededRng(7));
   expect(r.heroEquity).toBeGreaterThan(48);
   expect(r.heroEquity).toBeLessThan(58);

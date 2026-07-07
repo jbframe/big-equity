@@ -31,7 +31,6 @@ For each container:
 - `docker-compose.yml` — ports, `restart:` policy (batch job vs long-running
   service)
 - `src/` listing — layout tables must match the actual files, including tests
-- For simulationPY: `requirements.txt` (stdlib-only claim), `be.yml`
 
 For infra and the root diagram:
 - `infra/variables.tf` — instance type, `app_domain`, `api_domain`, defaults
@@ -73,8 +72,7 @@ Container READMEs follow the shape of `containers/simulationAPI/README.md`:
 title, one-paragraph description (what it is, link its ADR if it has one),
 Prerequisites, Setup/Run with fenced `sh` blocks, Layout table, Deployment
 paragraph (how it ships via `deploy.yml`, port binding, public vs private).
-Batch jobs (PY, TS) say so explicitly; exposed services name their URL and the
-nginx/ADR-001 pattern.
+Exposed services name their URL and the nginx/ADR-001 pattern.
 
 ## 5. Finish
 

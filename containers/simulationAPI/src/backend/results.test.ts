@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { buildApp } from "../app.js";
 import { __test } from "../gateway/auth.js";
 
-// A well-formed payload, shaped like what the batch simulators produce.
+// A well-formed payload, shaped like what the sim engine produces.
 const payload = {
-  source: "simulationTS",
+  source: "web",
   heroHand: ["ad", "5d", "4s", "ks", "10c"],
   villainHand: ["ah", "ac", "kd", "4c", "2h"],
   board: ["3s", "9d", "js"],

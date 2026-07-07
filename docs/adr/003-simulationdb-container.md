@@ -76,7 +76,7 @@ Landing plan (decided 2026-07-03): split PRs — (1) infra: docker network, swap
 5. **deploy.yml: compose-only container** — the build/GHCR steps key off `containers/<name>/Dockerfile`; make sure the sync + `up -d` path also covers a directory with only a compose file (small tweak if discovery is Dockerfile-keyed)
 6. **Drizzle in simulationAPI** — add `drizzle-orm` (0.45.x), `drizzle-zod` (0.8.x), and `pg` as runtime deps (the derived zod schemas validate live requests); `drizzle-kit` (0.31.x) as a dev dep. Table definitions in `src/db/schema.ts`, `drizzle.config.ts` at the package root, generated SQL migrations committed under `drizzle/`
 7. **Migrations at API startup** — call `migrate(db, { migrationsFolder })` from `drizzle-orm/node-postgres/migrator` before `listen()`. Two consequences: the runtime Docker stage must copy `drizzle/` alongside `dist`, and since the API and DB live in separate compose projects (`depends_on` can't reach across), the API needs a bounded connect-retry loop at boot rather than assuming the DB is up
-8. **CRUD routes** — first resource: **simulation results**, with the table design derived from what the simulationPY/simulationTS batch jobs actually produce. Zod route schemas derived from the table definitions via `createSelectSchema`/`createInsertSchema`, plugged into the existing `fastify-type-provider-zod` setup from ADR-002
+8. **CRUD routes** — first resource: **simulation results**, with the table design derived from what the batch simulator jobs actually produce. Zod route schemas derived from the table definitions via `createSelectSchema`/`createInsertSchema`, plugged into the existing `fastify-type-provider-zod` setup from ADR-002
 9. **Backups, weekly** — Terraform: private S3 bucket with a lifecycle rule (expire dumps after ~30 days) and `s3:PutObject` added to the existing instance role; weekly cron entry in `user_data.sh.tftpl`: `docker exec simulationdb pg_dump -U $POSTGRES_USER $POSTGRES_DB | gzip | aws s3 cp - s3://<bucket>/simulationdb/$(date +%F).sql.gz`. Cost note: at this data size S3 is effectively free (<$0.01/mo) — the cadence is a data-loss-window choice, not a cost one; tightening to nightly later is a one-line cron change. Restore path (`aws s3 cp` + `gunzip | psql`) must be proven before real data lands — spun out to ADR-004 (draft)
 10. **Swapfile safety net** — add a 512 MiB swapfile to `user_data.sh.tftpl`; takes effect at the next box rebuild (as does the backup cron — until then, apply both by hand or rebuild deliberately)
 11. **Dev-only public access toggle** — spun out to **ADR-005** (draft): a manual `workflow_dispatch` workflow toggling an SG rule (caller CIDR) plus a compose port override, connecting via `db.makejohnacoffee.com:5432`, with OIDC-scoped credentials and a nightly auto-disable. Implemented after this ADR's core lands
@@ -94,8 +94,7 @@ graph TD
             direction LR
             Web["simulationWeb<br/>:8080 · 🌍 exposed via nginx :443"]
             API["simulationAPI<br/>Fastify + Drizzle · :3003 · 🌍 exposed via nginx :443"]
-            PY["simulationPY<br/>batch · no ports"]
-            TS["simulationTS<br/>batch · no ports"]
+            Batch["batch simulators<br/>batch · no ports"]
             DB[("<b>simulationDB</b><br/>postgres:18-alpine · 🔒 no host ports<br/>mem_limit 256m")]
         end
         Vol[("named volume<br/>simulationdb-data")]
@@ -113,8 +112,7 @@ graph TD
     style Vol fill:#3d2109,stroke:#f97316,stroke-width:2px,stroke-dasharray:6 4,color:#ffffff
     style API fill:#0c3d1f,stroke:#22c55e,stroke-width:2px,color:#ffffff
     style Web fill:#0c2d54,stroke:#3b82f6,stroke-width:2px,color:#ffffff
-    style PY fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
-    style TS fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
+    style Batch fill:#3f0f0f,stroke:#ef4444,stroke-width:2px,color:#ffffff
     style S3 fill:#1f2937,stroke:#94a3b8,stroke-width:2px,color:#ffffff
     style Dev fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#ffffff
     style EC2 fill:transparent,stroke:#94a3b8,stroke-dasharray:6 4,color:#ffffff

@@ -8,10 +8,10 @@ import {
 } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
-// Tally shapes mirror what the simulationPY/simulationTS batch jobs produce
-// (their SimulationResult): per-runout win counts for the high and low pots,
-// scoops, and the no-scoop breakdown. They live here, next to the table, so
-// the jsonb columns and the zod route schemas share one definition.
+// Tally shapes mirror what the sim engine produces (its SimulationResult):
+// per-runout win counts for the high and low pots, scoops, and the no-scoop
+// breakdown. They live here, next to the table, so the jsonb columns and the
+// zod route schemas share one definition.
 
 export const highTallySchema = z.object({
   heroWins: z.number().int().nonnegative(),
@@ -55,7 +55,7 @@ export const simulationResults = pgTable("simulation_results", {
   // request body, so a result can only ever belong to its creator. Every read
   // and delete is scoped by it, so users only ever see their own results.
   ownerSub: text("owner_sub").notNull(),
-  // Which simulator produced the result, e.g. "simulationTS".
+  // Which simulator produced the result, e.g. "web".
   source: text().notNull(),
   heroHand: text("hero_hand").array().notNull(),
   villainHand: text("villain_hand").array().notNull(),
