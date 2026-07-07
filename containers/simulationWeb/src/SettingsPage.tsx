@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
 
 import { UnauthorizedError } from "./api/client";
-import { fetchMe, fetchSettings, updateSettings } from "./api/endpoints";
+import { fetchSettings, updateSettings } from "./api/endpoints";
+import { useAuth, useLoginHref } from "./auth";
 import type { GameType } from "./gameType";
 import { GAMES, cacheGameType, loadCachedGameType } from "./gameType";
-
-type EmailState =
-  | { status: "loading" }
-  | { status: "loaded"; email: string | null }
-  | { status: "error"; message: string };
 
 type SaveState =
   | { status: "idle" | "saving" | "saved" }
@@ -18,28 +14,25 @@ const GAME_TYPE_ORDER: GameType[] = ["big-o", "holdem", "plo"];
 
 function errorMessage(e: unknown): string {
   return e instanceof UnauthorizedError
-    ? "Your session has expired — reload the page to sign in again."
+    ? "Your session has expired — log in again to sync settings."
     : e instanceof Error
       ? e.message
       : String(e);
 }
 
 export default function SettingsPage() {
-  const [emailState, setEmailState] = useState<EmailState>({ status: "loading" });
-  // Render the cached choice immediately; the server value replaces it when
-  // the fetch lands (it's the source of truth, this browser may be stale).
+  const auth = useAuth();
+  const loginHref = useLoginHref();
+  // Render the cached choice immediately; for a signed-in user the server
+  // value replaces it when the fetch lands (it's the source of truth, this
+  // browser may be stale). Anonymous users keep the cache — it's all they
+  // have, and choices persist only in this browser.
   const [gameType, setGameType] = useState<GameType>(() => loadCachedGameType());
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
 
   useEffect(() => {
+    if (auth.status !== "authenticated") return;
     let cancelled = false;
-    fetchMe()
-      .then((user) => {
-        if (!cancelled) setEmailState({ status: "loaded", email: user.email });
-      })
-      .catch((e) => {
-        if (!cancelled) setEmailState({ status: "error", message: errorMessage(e) });
-      });
     fetchSettings()
       .then((settings) => {
         if (cancelled) return;
@@ -52,12 +45,17 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth.status]);
 
   function choose(type: GameType) {
-    // Optimistic: flip the radio and cache right away, then persist.
+    // Optimistic: flip the radio and cache right away, then persist — to the
+    // backend when signed in, to this browser only when not.
     setGameType(type);
     cacheGameType(type);
+    if (auth.status !== "authenticated") {
+      setSaveState({ status: "saved" });
+      return;
+    }
     setSaveState({ status: "saving" });
     updateSettings({ gameType: type })
       .then(() => setSaveState({ status: "saved" }))
@@ -69,16 +67,24 @@ export default function SettingsPage() {
       <h2>Settings</h2>
 
       <h3>Account</h3>
-      {emailState.status === "loading" && <p className="hint">Loading…</p>}
-      {emailState.status === "error" && <p className="error">{emailState.message}</p>}
-      {emailState.status === "loaded" && (
+      {auth.status === "loading" && <p className="hint">Loading…</p>}
+      {auth.status === "anonymous" && (
         <p>
-          Signed in as <strong>{emailState.email ?? "(no email on this account)"}</strong>
+          Not signed in. <a href={loginHref}>Log in</a> to save results and sync
+          settings across devices.
+        </p>
+      )}
+      {auth.status === "authenticated" && (
+        <p>
+          Signed in as <strong>{auth.user.email ?? "(no email on this account)"}</strong>
         </p>
       )}
 
       <h3>Poker game type</h3>
-      <p className="hint">Choose which simulator the Simulator tab runs.</p>
+      <p className="hint">
+        Choose which simulator the Simulator tab runs.
+        {auth.status === "anonymous" && " Saved in this browser only."}
+      </p>
       <fieldset className="game-type">
         <legend className="visually-hidden">Poker game type</legend>
         {GAME_TYPE_ORDER.map((type) => (

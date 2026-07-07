@@ -4,6 +4,7 @@ import { fromApiCards } from "./api/cards";
 import { UnauthorizedError } from "./api/client";
 import { listResults } from "./api/endpoints";
 import type { StoredResult } from "./api/types";
+import { useAuth, useLoginHref } from "./auth";
 import { BigOResults } from "./Results";
 
 type LoadState =
@@ -12,10 +13,15 @@ type LoadState =
   | { status: "loaded"; results: StoredResult[] };
 
 export default function PastResults() {
+  const auth = useAuth();
+  const loginHref = useLoginHref();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [openId, setOpenId] = useState<number | null>(null);
 
   useEffect(() => {
+    // Results live in the backend keyed to the signed-in user; anonymous
+    // visitors have none to fetch (the request would just 401).
+    if (auth.status !== "authenticated") return;
     let cancelled = false;
     listResults()
       .then(({ results }) => {
@@ -25,7 +31,7 @@ export default function PastResults() {
         if (cancelled) return;
         const message =
           e instanceof UnauthorizedError
-            ? "Your session has expired — reload the page to sign in again."
+            ? "Your session has expired — log in again to see saved results."
             : e instanceof Error
               ? e.message
               : String(e);
@@ -34,9 +40,16 @@ export default function PastResults() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth.status]);
 
-  if (state.status === "loading") {
+  if (auth.status === "anonymous") {
+    return (
+      <p className="hint">
+        <a href={loginHref}>Log in</a> to save simulation results and see them here.
+      </p>
+    );
+  }
+  if (auth.status === "loading" || state.status === "loading") {
     return <p className="hint">Loading saved results…</p>;
   }
   if (state.status === "error") {

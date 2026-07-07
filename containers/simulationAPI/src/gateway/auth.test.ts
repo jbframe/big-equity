@@ -7,9 +7,9 @@ import { __test } from "./auth.js";
 
 // The OIDC round-trip (login/callback) needs a live FusionAuth, so it's
 // covered by the integration path, not here. These unit tests pin the
-// gateway contracts (ADR-010): the session wall in front of the SPA, the
-// host constraint that keeps the auth routes off the api hostname, and the
-// login redirect the SPA depends on.
+// gateway contracts (ADR-010): the SPA proxy serving with and without a
+// session (login is optional), the host constraint that keeps the auth
+// routes off the api hostname, and the login redirect the SPA depends on.
 
 // Every gateway route only exists on the app hostname.
 const appHost = { host: __test.APP_HOST };
@@ -25,19 +25,19 @@ process.env["WEB_UPSTREAM"] =
   `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
 after(() => upstream.close());
 
-test("the wall redirects an anonymous request to /auth/login", async () => {
+test("the proxy serves the SPA to an anonymous request (login is optional)", async () => {
   const app = await buildApp();
   const res = await app.inject({
     method: "GET",
     url: "/some/page",
     headers: appHost,
   });
-  assert.equal(res.statusCode, 302);
-  assert.equal(res.headers["location"], "/auth/login?rd=%2Fsome%2Fpage");
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, "spa:/some/page");
   await app.close();
 });
 
-test("the wall redirects a garbage session cookie like no session", async () => {
+test("the proxy serves the SPA despite a garbage session cookie", async () => {
   const app = await buildApp();
   const res = await app.inject({
     method: "GET",
@@ -45,12 +45,12 @@ test("the wall redirects a garbage session cookie like no session", async () => 
     headers: appHost,
     cookies: { [__test.SESSION_COOKIE]: "not-a-jwt" },
   });
-  assert.equal(res.statusCode, 302);
-  assert.match(String(res.headers["location"]), /^\/auth\/login\?rd=/);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, "spa:/");
   await app.close();
 });
 
-test("the wall proxies to the SPA with a valid session cookie", async () => {
+test("the proxy serves the SPA with a valid session cookie", async () => {
   const app = await buildApp();
   const token = await __test.signSession({ sub: "user-123", email: "a@b.com" });
   const res = await app.inject({

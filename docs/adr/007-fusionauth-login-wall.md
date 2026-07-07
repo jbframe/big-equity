@@ -5,8 +5,11 @@ Date: 2026-07-04
 Status: **Accepted** — gating mechanism amended by
 [ADR-010](010-gateway-in-simulationapi.md): the wall moved from nginx
 `auth_request` into simulationAPI itself (a session-gated proxy in front of
-the SPA), and `/auth/verify` was removed with it. The requirements, the OIDC
-flow, and the relying-party design below still stand.
+the SPA), and `/auth/verify` was removed with it. Amended again 2026-07-06:
+login is now **optional** — the SPA proxy serves anonymous visitors and only
+the session-gated data routes require sign-in, so nothing is persisted for
+an anonymous user. The OIDC flow and the relying-party design below still
+stand.
 
 ## Requirements
 - Put the public app at `https://allin.makejohnacoffee.com` (the simulationWeb

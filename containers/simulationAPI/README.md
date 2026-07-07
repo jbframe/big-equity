@@ -17,13 +17,15 @@ Fastify HTTP service — a long-running container, unlike the batch simulators
    session is forwarded to the handlers as `x-user-sub` / `x-user-email`
    headers (client-supplied copies are stripped, so they can't be spoofed).
 
-2. **App gateway** (`allin.makejohnacoffee.com`) — the login wall that guards
+2. **App gateway** (`allin.makejohnacoffee.com`) — the OIDC front door for
    the simulationWeb front end: `src/gateway/auth.ts`
    runs the authorization-code flow against FusionAuth, validates the
    id_token, issues a stateless signed session cookie, and proxies the whole
-   `allin.…` hostname to the static SPA container — but only when that cookie
-   is valid, so no anonymous request reaches the SPA. FusionAuth stays the
-   sole user store — there are no accounts here.
+   `allin.…` hostname to the static SPA container. Login is optional: the
+   SPA is served to anonymous visitors too (the simulator runs entirely
+   client-side), and only the session-gated CRUD routes above persist
+   anything, so nothing is stored for an anonymous user. FusionAuth stays
+   the sole user store — there are no accounts here.
 
 The two roles share this container but not code: each lives in its own
 module (`src/gateway/`, `src/backend/`) that registers its own plugins, and
@@ -86,7 +88,7 @@ dev-only 5432 toggle for your current IP via the `db-access` workflow;
 | `GET /auth/callback` † | `302` to the app    | Code exchange + id_token check, sets session   |
 | `GET /auth/me` †      | identity or `401`   | Who's signed in (for the SPA)                  |
 | `GET /auth/logout` †  | `302` to FusionAuth | Clear session, end the IdP session             |
-| any other path †      | SPA proxy or `302`  | The login wall: valid session → proxied to `simulationweb:80`; anonymous → `/auth/login` |
+| any other path †      | SPA proxy           | Proxied to `simulationweb:80`, session or not — login is optional |
 | `POST /results` ‡     | `201` created row  | Store a batch simulator run, owned by the caller |
 | `GET /results` ‡      | `{results: [...]}` | List the caller's runs, newest first (`limit`/`offset`) |
 | `GET /results/:id` ‡  | row or `404`       | Fetch one of the caller's runs                 |
@@ -116,7 +118,7 @@ update route.
 | `src/main.ts`               | Entry point: builds the app, migrates, listens (3003) |
 | `src/app.ts`                | Composition root: zod compilers + registers the two role modules |
 | `src/gateway/index.ts`      | Gateway module entry: cookie plugin + auth routes     |
-| `src/gateway/auth.ts`       | App gateway: OIDC routes, session cookie, SPA login-wall proxy |
+| `src/gateway/auth.ts`       | App gateway: OIDC routes, session cookie, SPA proxy   |
 | `src/backend/index.ts`      | Backend module entry: CORS + health + session-gated results routes |
 | `src/backend/health.ts`     | `GET /health` route + zod schema                      |
 | `src/backend/results.ts`    | CRUD routes; zod schemas derived from the table       |
@@ -146,7 +148,7 @@ graph TB
         App["<b>app.ts</b><br/>[Component: composition root]<br/>Fastify + zod compilers;<br/>registers the two role modules —<br/>the only place they meet"]
 
         subgraph GWM["src/gateway — app-gateway role (cookie plugin lives here)"]
-            Gateway["<b>gateway/auth.ts</b><br/>[Component: app gateway]<br/>OIDC relying party + login wall:<br/>/auth/* routes, signed session<br/>cookie, session-gated SPA proxy —<br/>host-constrained to allin.…"]
+            Gateway["<b>gateway/auth.ts</b><br/>[Component: app gateway]<br/>OIDC relying party + SPA proxy:<br/>/auth/* routes, signed session<br/>cookie, proxy open to anonymous<br/>visitors — host-constrained to allin.…"]
         end
 
         subgraph BEM["src/backend — API-gateway role (CORS lives here)"]
@@ -165,7 +167,7 @@ graph TB
     App -- "registers" --> Gateway
     App -- "registers behind the<br/>gateway's session guard" --> Results
     Gateway -. "OIDC: authorize/logout redirects;<br/>back-channel code→token, JWKS<br/>HTTP :9011" .-> Auth
-    Gateway -- "Proxies every non-/auth path<br/>when the session is valid<br/>HTTP :80" --> Web
+    Gateway -- "Proxies every non-/auth path,<br/>session or not<br/>HTTP :80" --> Web
     Results -- "insert / select / delete" --> Client
     Results -- "derives zod schemas from" --> Schema
     Migrate -- "migrates via" --> Client
@@ -195,7 +197,8 @@ reaching `simulationapi:3003` over `simulation-net`. Public exposure
 at `https://api.makejohnacoffee.com` comes with its own Let's Encrypt cert
 plus per-IP rate limiting at the proxy (10 r/s, burst 20, 429 on excess). The
 `allin.…` vhost also lands here wholesale — this container is the app gateway
-and forwards it to the SPA behind the session check.
+and forwards it to the SPA (login optional; only the data routes need a
+session).
 
 The deploy pipeline also writes the OIDC config into `.env`: `AUTH_ISSUER`,
 `AUTH_CLIENT_ID`, `AUTH_REDIRECT_URI`, `AUTH_APP_URL`, plus two values from

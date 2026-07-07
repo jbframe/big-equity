@@ -18,7 +18,7 @@ Technology choices follow the defaults in
 | `simulationPY` | Poker equity simulator — given hero/villain hands and a board, it runs out the remaining cards and reports each player's equity. Stdlib-only Python. | [containers/simulationPY/README.md](containers/simulationPY/README.md) |
 | `simulationTS` | TypeScript rewrite of the poker equity simulator. Monte Carlo simulator for 5-card Omaha Hi-Lo with hand evaluation and pot-split logic. | [containers/simulationTS/README.md](containers/simulationTS/README.md) |
 | `simulationWeb` | Browser front-end for the equity simulator. React 19 + TypeScript + Vite, served static via nginx; currently a bare scaffold being built up incrementally. | [containers/simulationWeb/README.md](containers/simulationWeb/README.md) |
-| `simulationAPI` | Dual-role Fastify service (TypeScript, zod-validated routes): CRUD backend for simulationDB on `api.…` **and** app gateway / login wall for the SPA on `allin.…`. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
+| `simulationAPI` | Dual-role Fastify service (TypeScript, zod-validated routes): CRUD backend for simulationDB on `api.…` **and** app gateway (OIDC login + SPA proxy; login optional) on `allin.…`. | [containers/simulationAPI/README.md](containers/simulationAPI/README.md) |
 | `simulationDB` | PostgreSQL database (upstream `postgres:18-alpine`, no Dockerfile). Docker-network-only — no host ports; its clients are simulationAPI (app data) and fusionAuth (its own `fusionauth` database). | [containers/simulationDB/README.md](containers/simulationDB/README.md) |
 | `fusionAuth` | Self-hosted identity provider (upstream `fusionauth/fusionauth-app`, no Dockerfile). Reuses simulationDB (its own `fusionauth` database, no bundled Postgres); OpenSearch off (`SEARCH_TYPE=database`). | [containers/fusionAuth/README.md](containers/fusionAuth/README.md) |
 | `reverseProxy` | The public edge: nginx + certbot in one image. Terminates TLS for all three hostnames on 80/443, routes to the other containers over `simulation-net`, and owns the Let's Encrypt issue/renew loop. | [containers/reverseProxy/README.md](containers/reverseProxy/README.md) |
@@ -38,8 +38,8 @@ that publishes host ports.
 | --- | --- | --- |
 | `simulationPY` | No | Internal only |
 | `simulationTS` | No | Internal only |
-| `simulationWeb` | Via proxy | https://allin.makejohnacoffee.com — behind a FusionAuth login; no host ports, Docker network only |
-| `simulationAPI` | Via proxy | https://api.makejohnacoffee.com; also serves the whole `allin.…` vhost as the SPA's login-wall gateway; no host ports |
+| `simulationWeb` | Via proxy | https://allin.makejohnacoffee.com — public; FusionAuth login is optional (needed only to save results); no host ports, Docker network only |
+| `simulationAPI` | Via proxy | https://api.makejohnacoffee.com; also serves the whole `allin.…` vhost as the SPA's app gateway; no host ports |
 | `simulationDB` | No | Docker network only; dev-only public-access toggle via `./cmd db-access` |
 | `fusionAuth` | Via proxy | https://id.makejohnacoffee.com; no host ports |
 | `reverseProxy` | **Yes — the only one** | Publishes 80/443 and fronts the three rows above |
@@ -60,7 +60,7 @@ graph TB
 
     subgraph EC2["EC2 Docker host · t3.micro · Amazon Linux 2023 (latest via SSM) · simulation-net"]
         Proxy["<b>reverseProxy</b><br/>[Container: nginx + certbot]<br/>Public edge — the only container with host<br/>ports (80/443); TLS for all three hostnames,<br/>hostname routing, cert issue/renew"]
-        API["<b>simulationAPI</b><br/>[Container: Node.js, Fastify]<br/>Data API (api.…) and app gateway /<br/>login wall for the SPA (allin.…)"]
+        API["<b>simulationAPI</b><br/>[Container: Node.js, Fastify]<br/>Data API (api.…) and app gateway /<br/>SPA proxy (allin.…), login optional"]
         Web["<b>simulationWeb</b><br/>[Container: React SPA on nginx]<br/>Static front-end; reachable only<br/>through simulationAPI's gateway"]
         Auth["<b>fusionAuth</b><br/>[Container: FusionAuth, JVM]<br/>Identity provider (id.…): hosted<br/>login, OIDC, admin UI"]
         DB[("<b>simulationDB</b><br/>[Container: PostgreSQL 18]<br/>App data plus FusionAuth's own<br/>database; Docker network only")]
@@ -74,7 +74,7 @@ graph TB
     Proxy -- "ACME HTTP-01<br/>cert issue + renew" --> LE
     Proxy -- "Proxies allin.… and api.…<br/>HTTP :3003" --> API
     Proxy -- "Proxies id.…<br/>HTTP :9011" --> Auth
-    API -- "Proxies the SPA when<br/>the session is valid · HTTP :80" --> Web
+    API -- "Proxies the SPA,<br/>session or not · HTTP :80" --> Web
     API -. "OIDC back-channel: code→token, JWKS<br/>HTTPS · id.… (back through the edge)" .-> Auth
     API -- "Reads/writes app data<br/>postgres :5432" --> DB
     Auth -- "Own fusionauth database<br/>postgres :5432" --> DB
@@ -123,14 +123,15 @@ prefixed output; Ctrl-C stops both. To run one on its own:
 `npm run dev:local` in `containers/simulationAPI`, `npm run dev` in
 `containers/simulationWeb`.
 
-Then open **http://local.allin.makejohnacoffee.com** and sign in as
-`player@example.com` (password: `LOCAL_PLAYER_PASSWORD` in
-`containers/simulationAPI/.env.local`) — the full prod flow (login wall →
+Then open **http://local.allin.makejohnacoffee.com** — the simulator works
+without signing in. To exercise the login flow (saving results, settings
+sync), sign in as `player@example.com` (password: `LOCAL_PLAYER_PASSWORD` in
+`containers/simulationAPI/.env.local`) — the full prod flow (Log in →
 hosted FusionAuth login → session cookie → SPA) runs locally.
 
 | Local URL | Prod equivalent | What answers |
 | --- | --- | --- |
-| http://local.allin.makejohnacoffee.com | https://allin.makejohnacoffee.com | simulationAPI's login wall, proxying the Vite dev server after sign-in |
+| http://local.allin.makejohnacoffee.com | https://allin.makejohnacoffee.com | simulationAPI's app gateway, proxying the Vite dev server (login optional) |
 | http://local.api.makejohnacoffee.com | https://api.makejohnacoffee.com | simulationAPI's results CRUD (session-gated, CORS for the local app origin) |
 | http://local.id.makejohnacoffee.com | https://id.makejohnacoffee.com | FusionAuth (admin UI: `admin@example.com`, password: `LOCAL_ADMIN_PASSWORD` in `.env.local`) |
 | `localhost:5432` | Docker-network-only on the box | Postgres (`postgresql://simulation:simulation@localhost:5432/simulation`) |
@@ -148,7 +149,7 @@ How the pieces map to prod:
   the setup wizard.
 - `npm run dev:local` starts the API with
   `containers/simulationAPI/.env.local`, which points the OIDC config at the
-  local FusionAuth and the login wall at the Vite dev server. The file is
+  local FusionAuth and the SPA proxy at the Vite dev server. The file is
   generated by `./cmd local-stack` (gitignored; random `AUTH_CLIENT_SECRET`
   and user passwords per checkout); FusionAuth is kickstarted with the same
   values. To rotate them: delete `.env.local`, then `./cmd local-stack reset`
@@ -159,7 +160,7 @@ How the pieces map to prod:
 
 Caveats:
 
-- **Vite HMR doesn't cross the login wall** (the SPA proxy doesn't forward
+- **Vite HMR doesn't cross the gateway** (the SPA proxy doesn't forward
   websockets). Iterating on the front end alone? Use http://localhost:5173
   directly; through `local.allin.…` you reload manually.
 - **Fresh start**: `./cmd local-stack reset` drops the data volume; the next

@@ -4,7 +4,8 @@ import { authRoutes } from "./auth.js";
 
 // The app-gateway role: everything serving the allin.… hostname — the OIDC
 // login flow against FusionAuth, the signed session cookie (ADR-007), and
-// the session-gated SPA proxy (ADR-010). The cookie plugin is registered
+// the SPA proxy (ADR-010; login is optional, the SPA is served anonymously
+// too). The cookie plugin is registered
 // here, not in the composition root, because only this role uses cookies —
 // the module carries everything it needs to become its own container.
 export async function gateway(app: FastifyInstance): Promise<void> {
