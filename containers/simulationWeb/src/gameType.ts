@@ -22,9 +22,9 @@ export const GAMES: Record<GameType, GameConfig> = {
     label: "Big O",
     description: "5-card Omaha Hi-Lo, 8-or-better",
     handSize: 5,
-    defaultHero: "Ad 5d 4s Ks Tc",
-    defaultVillain: "Ah Ac Kd 4c 2h",
-    defaultBoard: "3s 9d Js",
+    defaultHero: "4c 4d 5c Kh 3c",
+    defaultVillain: "Ad 2h 4s Qc 10s",
+    defaultBoard: "2d 3s 9d 6c As",
   },
   holdem: {
     label: "No Limit Hold'em",
