@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import type { GameType } from "../gameType";
-import type { SimulationResult } from "../sim/simulation";
+import type { HiLoResult } from "../sim/engine";
 
 /**
  * Lowercase backend card notation, e.g. "ad", "10c". The UI's display
@@ -86,7 +86,7 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 // Compile-time guard: the wire shape must stay assignable to the sim's own
 // result type, so `...simulationResult` spreads keep satisfying the contract.
-const _simResultMatchesWire: SimulationResult = {} as CreateResultInput;
+const _simResultMatchesWire: HiLoResult = {} as CreateResultInput;
 void _simResultMatchesWire;
 
 // Same idea for the game type: the wire enum and the UI's GameType union

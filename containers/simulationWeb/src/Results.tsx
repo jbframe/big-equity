@@ -1,12 +1,11 @@
-import type { HoldemSimulationResult } from "./sim/holdem";
-import type { SimulationResult } from "./sim/simulation";
-import type { PLOSimulationResult } from "./sim/plo-simulation";
+import type { HighOnlyResult, HiLoResult } from "./sim/engine";
 
 const pct = (n: number, total: number): string =>
   total === 0 ? "0.00" : ((n / total) * 100).toFixed(2);
 
-export function HoldemResults({ result }: { result: HoldemSimulationResult }) {
-  const { simulations: sims, heroWins, villainWins, ties } = result;
+/** Results for high-only games (Hold'em, PLO). */
+export function HighResults({ result }: { result: HighOnlyResult }) {
+  const { simulations: sims, high } = result;
 
   return (
     <section className="results">
@@ -15,16 +14,16 @@ export function HoldemResults({ result }: { result: HoldemSimulationResult }) {
       </h2>
       <p className="hint">{sims.toLocaleString()} simulations</p>
 
-      <h3>Showdown</h3>
+      <h3>High hand</h3>
       <p>
-        Hero wins {pct(heroWins, sims)}% · Villain wins {pct(villainWins, sims)}% · Ties{" "}
-        {pct(ties, sims)}%
+        Hero wins {pct(high.heroWins, sims)}% · Villain wins {pct(high.villainWins, sims)}% ·
+        Splits {pct(high.splits, sims)}%
       </p>
     </section>
   );
 }
 
-export function BigOResults({ result }: { result: SimulationResult }) {
+export function BigOResults({ result }: { result: HiLoResult }) {
   const { simulations: sims, high, low, scoop, noScoop } = result;
   const none = scoop.none;
 
@@ -62,26 +61,6 @@ export function BigOResults({ result }: { result: SimulationResult }) {
         Low — Hero wins {pct(noScoop.low.heroWins, none)}% · Villain wins{" "}
         {pct(noScoop.low.villainWins, none)}% · Splits {pct(noScoop.low.splits, none)}% · No low{" "}
         {pct(noScoop.low.noLow, none)}%
-      </p>
-    </section>
-  );
-}
-
-
-export function PLOResults({ result }: { result: PLOSimulationResult }) {
-  const { simulations: sims, high} = result;
-
-  return (
-    <section className="results">
-      <h2>
-        Hero equity: <strong>{result.heroEquity.toFixed(3)}%</strong>
-      </h2>
-      <p className="hint">{sims.toLocaleString()} simulations</p>
-
-      <h3>High hand</h3>
-      <p>
-        Hero wins {pct(high.heroWins, sims)}% · Villain wins {pct(high.villainWins, sims)}% ·
-        Splits {pct(high.splits, sims)}%
       </p>
     </section>
   );

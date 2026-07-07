@@ -313,7 +313,7 @@ test("the simulator adopts the server's game type on a fresh browser", async () 
   expect(localStorage.getItem("gameType")).toBe("holdem");
 });
 
-test("a hold'em run shows the showdown breakdown without a save button", async () => {
+test("a hold'em run shows the high-hand breakdown without a save button", async () => {
   localStorage.setItem("gameType", "holdem");
 
   renderApp();
@@ -325,7 +325,7 @@ test("a hold'em run shows the showdown breakdown without a save button", async (
   runSimulation();
 
   expect(await screen.findByText("100.000%", undefined, { timeout: 5000 })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Showdown", level: 3 })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "High hand", level: 3 })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Scoop", level: 3 })).toBeNull();
   expect(screen.queryByRole("button", { name: /save result/i })).toBeNull();
 });

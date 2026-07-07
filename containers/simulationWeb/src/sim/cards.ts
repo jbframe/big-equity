@@ -66,6 +66,27 @@ export function remainingDeck(...inPlay: readonly Card[][]): Card[] {
   return fullDeck().filter((card) => !used.has(card));
 }
 
+/** All k-combinations of `items` (order preserved). */
+export function combinations<T>(items: readonly T[], k: number): T[][] {
+  const result: T[][] = [];
+  const combo: T[] = [];
+
+  const recurse = (start: number): void => {
+    if (combo.length === k) {
+      result.push([...combo]);
+      return;
+    }
+    for (let i = start; i <= items.length - (k - combo.length); i++) {
+      combo.push(items[i]!);
+      recurse(i + 1);
+      combo.pop();
+    }
+  };
+
+  recurse(0);
+  return result;
+}
+
 /** In-place Fisher-Yates shuffle. Returns the same array for convenience. */
 export function shuffle<T>(array: T[], rng: () => number = Math.random): T[] {
   for (let i = array.length - 1; i > 0; i--) {
