@@ -66,7 +66,7 @@ export const listResultsResponseSchema = z.object({
 
 // Mirrors gameTypeSchema/settingsSchema in
 // containers/simulationAPI/src/backend/settings.ts and db/schema.ts.
-export const gameTypeSchema = z.enum(["big-o", "holdem"]);
+export const gameTypeSchema = z.enum(["big-o", "holdem", "plo"]);
 export const settingsSchema = z.object({ gameType: gameTypeSchema });
 
 export const authUserSchema = z.object({

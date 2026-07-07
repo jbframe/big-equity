@@ -4,7 +4,7 @@ import { fromApiCards } from "./api/cards";
 import { UnauthorizedError } from "./api/client";
 import { listResults } from "./api/endpoints";
 import type { StoredResult } from "./api/types";
-import { Results } from "./Results";
+import { BigOResults } from "./Results";
 
 type LoadState =
   | { status: "loading" }
@@ -87,7 +87,7 @@ function PastResultRow({
         </span>
         <strong className="past-result-equity">{result.heroEquity.toFixed(3)}%</strong>
       </button>
-      {open && <Results result={result} />}
+      {open && <BigOResults result={result} />}
     </li>
   );
 }

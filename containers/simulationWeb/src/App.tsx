@@ -6,12 +6,15 @@ import { UnauthorizedError } from "./api/client";
 import { createResult, fetchSettings } from "./api/endpoints";
 import { GAMES, cacheGameType, loadCachedGameType } from "./gameType";
 import PastResults from "./PastResults";
-import { HoldemResults, Results } from "./Results";
+import { HoldemResults, BigOResults, PLOResults } from "./Results";
 import { parseHand } from "./sim/cards";
 import type { HoldemSimulationResult } from "./sim/holdem";
 import { simulateHoldemBoard } from "./sim/holdem";
 import type { SimulationResult } from "./sim/simulation";
+import type { PLOSimulationResult } from "./sim/plo-simulation";
 import { simulateBoard } from "./sim/simulation";
+import { simulatePLOBoard } from "./sim/plo-simulation";
+
 
 function splitCards(raw: string): string[] {
   return raw
@@ -28,9 +31,10 @@ type CompletedRun = {
   villainHand: string[];
   board: string[];
 } & (
-  | { gameType: "big-o"; result: SimulationResult }
-  | { gameType: "holdem"; result: HoldemSimulationResult }
-);
+    | { gameType: "big-o"; result: SimulationResult }
+    | { gameType: "holdem"; result: HoldemSimulationResult }
+    | { gameType: "plo"; result: PLOSimulationResult }
+  );
 
 type SaveState =
   | { status: "idle" | "saving" | "saved" }
@@ -72,7 +76,7 @@ export default function App() {
         setError(null);
         setLastRun(null);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -120,19 +124,29 @@ export default function App() {
       const boardCards = splitCards(board);
       try {
         const inputs = { heroHand, villainHand, board: boardCards };
-        setLastRun(
-          gameType === "holdem"
-            ? {
-                gameType,
-                result: simulateHoldemBoard(heroHand, villainHand, boardCards, simulations),
-                ...inputs,
-              }
-            : {
-                gameType,
-                result: simulateBoard(heroHand, villainHand, boardCards, simulations),
-                ...inputs,
-              },
-        );
+        if (gameType === 'holdem') {
+          setLastRun({
+            gameType,
+            result: simulateHoldemBoard(heroHand, villainHand, boardCards, simulations),
+            ...inputs,
+          })
+        }
+        if (gameType === 'big-o') {
+          setLastRun({
+            gameType,
+            result: simulateBoard(heroHand, villainHand, boardCards, simulations),
+            ...inputs,
+          })
+        }
+        if (gameType === 'plo') {
+          setLastRun({
+            gameType,
+            result: simulatePLOBoard(heroHand, villainHand, boardCards, simulations),
+            ...inputs,
+          })
+        }
+
+
         setSaveState({ status: "idle" });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -165,6 +179,21 @@ export default function App() {
       setSaveState({ status: "error", message });
     }
   }
+
+  function renderResults(lastRun: CompletedRun | null): React.ReactElement | null {
+    if (lastRun === null) {
+      return null;
+    }
+    if (lastRun.gameType === 'holdem') {
+      return <HoldemResults result={lastRun.result} />;
+    }
+    if (lastRun.gameType === 'big-o') {
+      return <BigOResults result={lastRun.result} />;
+    }
+    return <PLOResults result={lastRun.result} />;
+  }
+
+
 
   return (
     <>
@@ -245,11 +274,7 @@ export default function App() {
 
           {lastRun && !running && (
             <>
-              {lastRun.gameType === "holdem" ? (
-                <HoldemResults result={lastRun.result} />
-              ) : (
-                <Results result={lastRun.result} />
-              )}
+              {renderResults(lastRun)}
               {lastRun.gameType === "big-o" && (
                 <div className="save">
                   <button

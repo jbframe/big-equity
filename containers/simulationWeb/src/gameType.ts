@@ -6,7 +6,7 @@
  * simulator can render the right game immediately, before the fetch lands.
  */
 
-export type GameType = "big-o" | "holdem";
+export type GameType = "big-o" | "holdem" | "plo";
 
 export interface GameConfig {
   label: string;
@@ -34,13 +34,21 @@ export const GAMES: Record<GameType, GameConfig> = {
     defaultVillain: "Qd Qc",
     defaultBoard: "",
   },
+    plo: {
+    label: "PLO",
+    description: "4-card Omaha Hi",
+    handSize: 4,
+    defaultHero: "As 5c 4d Kc",
+    defaultVillain: "Ah Ac Kd 4c",
+    defaultBoard: "Ad 5d 4s Ks Tc",
+  },
 };
 
 const STORAGE_KEY = "gameType";
 
 export function loadCachedGameType(): GameType {
   const stored = localStorage.getItem(STORAGE_KEY);
-  return stored === "big-o" || stored === "holdem" ? stored : "big-o";
+  return stored === "big-o" || stored === "holdem"|| stored === "plo" ? stored : "big-o";
 }
 
 export function cacheGameType(type: GameType): void {

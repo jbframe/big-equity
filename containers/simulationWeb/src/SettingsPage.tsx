@@ -14,7 +14,7 @@ type SaveState =
   | { status: "idle" | "saving" | "saved" }
   | { status: "error"; message: string };
 
-const GAME_TYPE_ORDER: GameType[] = ["big-o", "holdem"];
+const GAME_TYPE_ORDER: GameType[] = ["big-o", "holdem", "plo"];
 
 function errorMessage(e: unknown): string {
   return e instanceof UnauthorizedError
