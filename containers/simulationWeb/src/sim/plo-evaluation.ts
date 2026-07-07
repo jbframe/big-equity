@@ -1,10 +1,10 @@
 /**
- * Five-card hand evaluation for poker Hi-Lo.
+ * Five-card hand evaluation for PLO (high only).
  *
- * The scoring scheme is intentionally identical to the original Python
- * implementation so results match: a single integer score per hand where
- * higher is better for the high hand, and lower is better for the (8-or-better)
- * low hand. Cards are expected in canonical form (see `cards.ts`).
+ * Hands are scored with full kicker resolution using the same scheme as the
+ * Hold'em evaluator: a category digit packed above five base-15 tiebreaker
+ * digits, so higher is strictly better and equal scores are true ties.
+ * Cards are expected in canonical form (see `cards.ts`).
  */
 
 import type { Card } from "./cards";
@@ -39,60 +39,72 @@ export function combinations<T>(items: readonly T[], k: number): T[][] {
   return result;
 }
 
+// Hand categories, packed above five base-15 tiebreaker digits.
+const STRAIGHT_FLUSH = 8;
+const QUADS = 7;
+const FULL_HOUSE = 6;
+const FLUSH = 5;
+const STRAIGHT = 4;
+const TRIPS = 3;
+const TWO_PAIR = 2;
+const PAIR = 1;
+
 /**
- * Score a 5-card high hand. Higher is better. Categories are separated by
- * powers of ten (straight flush 8000+, quads 7000+, ... high card <1000).
+ * Score a 5-card high hand with full kicker resolution. Higher is better;
+ * equal scores are true ties. Same scheme as `scoreFiveCardHand` in
+ * `holdem.ts`.
  */
 export function evaluateHighHand(hand: readonly Card[]): number {
-  const parsed = hand
-    .map((card) => ({ rank: HIGH_RANK[card[0]!]!, suit: card[1]! }))
-    .sort((a, b) => b.rank - a.rank);
+  const ranks = hand.map((card) => HIGH_RANK[card[0]!]!).sort((a, b) => b - a);
+  const isFlush = hand.every((card) => card[1] === hand[0]![1]);
 
   const rankCounts = new Map<number, number>();
-  const suitCounts = new Map<string, number>();
-  for (const { rank, suit } of parsed) {
-    rankCounts.set(rank, (rankCounts.get(rank) ?? 0) + 1);
-    suitCounts.set(suit, (suitCounts.get(suit) ?? 0) + 1);
-  }
+  for (const rank of ranks) rankCounts.set(rank, (rankCounts.get(rank) ?? 0) + 1);
 
-  const isFlush = [...suitCounts.values()].some((count) => count >= 5);
-
-  const distinctRanksDesc = [...rankCounts.keys()].sort((a, b) => b - a);
-  let isStraight = false;
-  for (let i = 0; i < distinctRanksDesc.length - 4; i++) {
-    if (distinctRanksDesc[i]! - distinctRanksDesc[i + 4]! === 4) {
-      isStraight = true;
-      break;
-    }
-  }
-  // Ace plays low in a 5-high straight (wheel).
-  const rankSet = new Set(distinctRanksDesc);
-  if (!isStraight && [14, 5, 4, 3, 2].every((r) => rankSet.has(r))) {
-    isStraight = true;
-  }
-
-  // (count, rank) pairs sorted by count desc, then rank desc.
-  const mostCommon = [...rankCounts.entries()]
+  // Groups ordered by count desc then rank desc put the deciding ranks first
+  // (e.g. trips rank before kickers), so they double as the tiebreaker list.
+  const groups = [...rankCounts.entries()]
     .map(([rank, count]) => ({ rank, count }))
     .sort((a, b) => b.count - a.count || b.rank - a.rank);
 
-  const topRank = distinctRanksDesc[0]!;
-  const first = mostCommon[0]!;
-  const second = mostCommon[1];
+  let straightHigh = 0;
+  if (groups.length === 5) {
+    if (ranks[0]! - ranks[4]! === 4) straightHigh = ranks[0]!;
+    // Ace plays low in the wheel: ranks desc are A 5 4 3 2.
+    else if (ranks[0] === 14 && ranks[1] === 5 && ranks[4] === 2) straightHigh = 5;
+  }
 
-  if (isFlush && isStraight) return 8000 + topRank;
-  if (first.count === 4) return 7000 + first.rank;
-  if (first.count === 3 && second && second.count >= 2) {
-    return 6000 + first.rank * 100 + second.rank;
+  let category: number;
+  let tiebreaks: number[];
+  if (straightHigh) {
+    category = isFlush ? STRAIGHT_FLUSH : STRAIGHT;
+    tiebreaks = [straightHigh];
+  } else if (isFlush) {
+    category = FLUSH;
+    tiebreaks = ranks;
+  } else if (groups[0]!.count === 4) {
+    category = QUADS;
+    tiebreaks = groups.map((g) => g.rank);
+  } else if (groups[0]!.count === 3 && groups[1]!.count === 2) {
+    category = FULL_HOUSE;
+    tiebreaks = groups.map((g) => g.rank);
+  } else if (groups[0]!.count === 3) {
+    category = TRIPS;
+    tiebreaks = groups.map((g) => g.rank);
+  } else if (groups[0]!.count === 2 && groups[1]!.count === 2) {
+    category = TWO_PAIR;
+    tiebreaks = groups.map((g) => g.rank);
+  } else if (groups[0]!.count === 2) {
+    category = PAIR;
+    tiebreaks = groups.map((g) => g.rank);
+  } else {
+    category = 0;
+    tiebreaks = ranks;
   }
-  if (isFlush) return 5000 + topRank;
-  if (isStraight) return 4000 + topRank;
-  if (first.count === 3) return 3000 + first.rank;
-  if (first.count === 2 && second && second.count === 2) {
-    return 2000 + first.rank * 100 + second.rank;
-  }
-  if (first.count === 2) return 1000 + first.rank;
-  return topRank;
+
+  let score = category;
+  for (let i = 0; i < 5; i++) score = score * 15 + (tiebreaks[i] ?? 0);
+  return score;
 }
 
 export interface CompareResult {
@@ -103,14 +115,12 @@ export interface CompareResult {
 
 /**
  * Compare every candidate 5-card combo for each player, picking each player's
- * best high and best (qualifying) low, then determine the high and low winners.
+ * best high hand, then determine the high winner.
  */
 export function evaluateAndCompare(
   heroCombos: readonly Card[][],
   villainCombos: readonly Card[][],
 ): CompareResult {
-
-
   const best = (combos: readonly Card[][]) => {
     let high = -1;
     for (const combo of combos) {

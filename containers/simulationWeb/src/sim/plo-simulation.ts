@@ -1,8 +1,8 @@
 /**
- * Monte Carlo equity simulation for a single poker Hi-Lo matchup.
+ * Monte Carlo equity simulation for a single poker Hi matchup.
  *
  * Given two 5-card hands and a partial board, the simulator repeatedly deals
- * out the remaining board cards at random and tallies high/low/scoop outcomes,
+ * out the remaining board cards at random and tallies win/split outcomes,
  * then derives Hero's total pot equity.
  */
 
@@ -58,7 +58,7 @@ export function simulatePLOBoard(
     else high.splits++;
   }
 
-    const heroEquity = ((high.heroWins + (0.5 * high.splits)) / simulations) * 100;
+  const heroEquity = ((high.heroWins + 0.5 * high.splits) / simulations) * 100;
 
   return {
     simulations,
