@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { toApiCards } from "./api/cards";
 import { UnauthorizedError } from "./api/client";
 import { createResult, fetchSettings } from "./api/endpoints";
+import { useAuth, useLoginHref } from "./auth";
 import { GAMES, cacheGameType, loadCachedGameType } from "./gameType";
 import PastResults from "./PastResults";
 import { BigOResults, HighResults } from "./Results";
@@ -38,9 +39,13 @@ type SaveState =
 type Tab = "simulator" | "past";
 
 export default function App() {
+  const auth = useAuth();
+  const loginHref = useLoginHref();
+
   // Render with the cached game type immediately, then reconcile with the
   // server (source of truth) — another device may have changed it. Falls back
-  // to the cache silently when the fetch fails.
+  // to the cache silently when the fetch fails. Anonymous users have no
+  // server row, so the cache is their only source and the fetch is skipped.
   const [gameType, setGameType] = useState(() => loadCachedGameType());
   const game = GAMES[gameType];
 
@@ -55,11 +60,13 @@ export default function App() {
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
 
   useEffect(() => {
+    if (auth.status !== "authenticated") return;
     let cancelled = false;
     fetchSettings()
       .then(({ gameType: serverGameType }) => {
-        // `gameType` here is the mount-time cached value: this effect runs
-        // once and nothing else changes the game type within this page.
+        // `gameType` here is the value cached before the fetch: this effect
+        // fires once auth resolves and nothing else changes the game type
+        // within this page.
         if (cancelled || serverGameType === gameType) return;
         cacheGameType(serverGameType);
         // Hand sizes differ between games, so a stale form can't carry over.
@@ -75,7 +82,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth.status]);
 
   function validate(): string | null {
     const heroCards = splitCards(hero);
@@ -159,7 +166,7 @@ export default function App() {
     } catch (e) {
       const message =
         e instanceof UnauthorizedError
-          ? "Your session has expired — reload the page to sign in again."
+          ? "Your session has expired — log in again to save results."
           : e instanceof Error
             ? e.message
             : String(e);
@@ -254,22 +261,27 @@ export default function App() {
           {lastRun && !running && (
             <>
               {renderResults(lastRun)}
-              {lastRun.gameType === "big-o" && (
-                <div className="save">
-                  <button
-                    type="button"
-                    onClick={() => void save()}
-                    disabled={saveState.status === "saving" || saveState.status === "saved"}
-                  >
-                    {saveState.status === "saving"
-                      ? "Saving…"
-                      : saveState.status === "saved"
-                        ? "Saved ✓"
-                        : "Save result"}
-                  </button>
-                  {saveState.status === "error" && <p className="error">{saveState.message}</p>}
-                </div>
-              )}
+              {lastRun.gameType === "big-o" &&
+                (auth.status === "authenticated" ? (
+                  <div className="save">
+                    <button
+                      type="button"
+                      onClick={() => void save()}
+                      disabled={saveState.status === "saving" || saveState.status === "saved"}
+                    >
+                      {saveState.status === "saving"
+                        ? "Saving…"
+                        : saveState.status === "saved"
+                          ? "Saved ✓"
+                          : "Save result"}
+                    </button>
+                    {saveState.status === "error" && <p className="error">{saveState.message}</p>}
+                  </div>
+                ) : (
+                  <p className="hint save">
+                    <a href={loginHref}>Log in</a> to save this result.
+                  </p>
+                ))}
             </>
           )}
         </div>

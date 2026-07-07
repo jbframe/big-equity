@@ -3,7 +3,9 @@
 Date: 2026-07-05
 
 Status: **Accepted** — amends the gating mechanism of ADR-007 and simplifies
-the ADR-009 edge
+the ADR-009 edge. Amended 2026-07-06: the SPA proxy no longer requires a
+session (login is optional); the session guard remains on the data routes,
+which are the only persistence paths.
 
 ## Requirements
 - The reverseProxy container (ADR-009) should handle **certificates and

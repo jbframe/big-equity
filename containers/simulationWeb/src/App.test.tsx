@@ -47,6 +47,14 @@ const settingsRoute =
   () =>
     jsonResponse({ gameType });
 
+// Signed-in session: the AuthProvider asks /auth/me at boot, and the
+// backend-persisting features only render when it answers 200. Tests that
+// stub nothing (or omit this route) run as an anonymous visitor.
+const meRoute =
+  (email: string | null = "framejb@gmail.com") =>
+  () =>
+    jsonResponse({ sub: "user-1", email, name: null });
+
 function setInput(label: RegExp, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
@@ -58,9 +66,9 @@ function runSimulation() {
 test("renders the form with the example matchup prefilled", () => {
   renderApp();
   expect(screen.getByRole("heading", { name: /poker equity/i })).toBeTruthy();
-  expect(screen.getByLabelText<HTMLInputElement>(/hero hand/i).value).toBe("Ad 5d 4s Ks Tc");
-  expect(screen.getByLabelText<HTMLInputElement>(/villain hand/i).value).toBe("Ah Ac Kd 4c 2h");
-  expect(screen.getByLabelText<HTMLInputElement>(/board/i).value).toBe("3s 9d Js");
+  expect(screen.getByLabelText<HTMLInputElement>(/hero hand/i).value).toBe("4c 4d 5c Kh 3c");
+  expect(screen.getByLabelText<HTMLInputElement>(/villain hand/i).value).toBe("Ad 2h 4s Qc 10s");
+  expect(screen.getByLabelText<HTMLInputElement>(/board/i).value).toBe("2d 3s 9d 6c As");
 });
 
 test("rejects a hero hand without exactly 5 cards", () => {
@@ -99,6 +107,7 @@ test("runs a simulation and shows the results breakdown", async () => {
 
 test("saves a result to the backend in API card notation", async () => {
   const fetchMock = stubFetch({
+    "/auth/me": meRoute(),
     "/settings": settingsRoute(),
     // Echo the payload back with id/createdAt, like the backend's insert does.
     "/results": (init) =>
@@ -125,17 +134,15 @@ test("saves a result to the backend in API card notation", async () => {
   ) as [string, RequestInit];
   const body = JSON.parse(init.body as string);
   expect(body.source).toBe("web");
-  expect(body.heroHand).toEqual(["ad", "5d", "4s", "ks", "10c"]);
-  expect(body.villainHand).toEqual(["ah", "ac", "kd", "4c", "2h"]);
-  expect(body.board).toEqual(["3s", "9d", "js"]);
+  expect(body.heroHand).toEqual(["4c", "4d", "5c", "kh", "3c"]);
+  expect(body.villainHand).toEqual(["ad", "2h", "4s", "qc", "10s"]);
+  expect(body.board).toEqual(["2d", "3s", "9d", "6c", "as"]);
   expect(body.simulations).toBe(50);
 });
 
 test("shows an error when saving fails", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
-  );
+  // Signed in, but /results is unrouted so the save dies like a network drop.
+  stubFetch({ "/auth/me": meRoute(), "/settings": settingsRoute() });
 
   renderApp();
   setInput(/simulations/i, "50");
@@ -171,6 +178,7 @@ const storedResult = {
 
 function stubResultsList(results: unknown[]) {
   return stubFetch({
+    "/auth/me": meRoute(),
     "/settings": settingsRoute(),
     "/results": () => jsonResponse({ results }),
   });
@@ -205,7 +213,8 @@ test("the past results tab shows an empty state", async () => {
 });
 
 test("the past results tab surfaces load failures", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+  // Signed in, but /results is unrouted so the list load fails.
+  stubFetch({ "/auth/me": meRoute(), "/settings": settingsRoute() });
 
   renderApp();
   fireEvent.click(screen.getByRole("tab", { name: /past results/i }));
@@ -238,7 +247,7 @@ test("a locked full board shows 100% hero equity", async () => {
 
 function stubMe(email: string | null = "framejb@gmail.com") {
   return stubFetch({
-    "/auth/me": () => jsonResponse({ sub: "user-1", email, name: null }),
+    "/auth/me": meRoute(email),
     "/settings": settingsRoute(),
   });
 }
@@ -277,7 +286,7 @@ test("choosing No Limit Hold'em saves to the backend and switches the simulator"
   // backend's upsert.
   let serverGameType = "big-o";
   const fetchMock = stubFetch({
-    "/auth/me": () => jsonResponse({ sub: "user-1", email: "framejb@gmail.com", name: null }),
+    "/auth/me": meRoute(),
     "/settings": (init) => {
       if (init?.method === "PUT") {
         serverGameType = JSON.parse(init.body as string).gameType;
@@ -303,8 +312,8 @@ test("choosing No Limit Hold'em saves to the backend and switches the simulator"
 });
 
 test("the simulator adopts the server's game type on a fresh browser", async () => {
-  // No localStorage cache — another device saved hold'em earlier.
-  stubFetch({ "/settings": settingsRoute("holdem") });
+  // Signed in, no localStorage cache — another device saved hold'em earlier.
+  stubFetch({ "/auth/me": meRoute(), "/settings": settingsRoute("holdem") });
 
   renderApp();
 
@@ -337,4 +346,65 @@ test("hold'em mode rejects a hand without exactly 2 cards", () => {
   setInput(/hero hand/i, "As Kd Qh");
   runSimulation();
   expect(screen.getByText("Hero hand must have exactly 2 cards.")).toBeTruthy();
+});
+
+// --- Anonymous mode: login is optional, nothing is persisted ---------------
+
+test("an anonymous visitor gets a Log in link instead of Log out", async () => {
+  stubFetch({}); // /auth/me fails → anonymous
+
+  renderApp();
+
+  expect(await screen.findByRole("link", { name: "Log in" })).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Log out" })).toBeNull();
+});
+
+test("a signed-in visitor gets a Log out link", async () => {
+  stubMe();
+
+  renderApp();
+
+  expect(await screen.findByRole("link", { name: "Log out" })).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Log in" })).toBeNull();
+});
+
+test("an anonymous run offers a login prompt instead of a save button", async () => {
+  stubFetch({});
+
+  renderApp();
+  setInput(/simulations/i, "50");
+  runSimulation();
+  await screen.findByText(/hero equity/i, undefined, { timeout: 5000 });
+
+  expect(screen.queryByRole("button", { name: /save result/i })).toBeNull();
+  expect(screen.getByText(/to save this result/i)).toBeTruthy();
+});
+
+test("the past results tab asks anonymous visitors to log in, without fetching", async () => {
+  const fetchMock = stubFetch({});
+
+  renderApp();
+  fireEvent.click(screen.getByRole("tab", { name: /past results/i }));
+
+  expect(await screen.findByText(/to save simulation results/i)).toBeTruthy();
+  expect(
+    fetchMock.mock.calls.some(([url]) => String(url).endsWith("/results")),
+  ).toBe(false);
+});
+
+test("the settings page works anonymously, saving the game type locally", async () => {
+  const fetchMock = stubFetch({});
+
+  renderApp("/settings");
+  expect(await screen.findByText(/not signed in/i)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("radio", { name: /no limit hold'em/i }));
+
+  expect(await screen.findByText("Saved ✓")).toBeTruthy();
+  expect(localStorage.getItem("gameType")).toBe("holdem");
+  // No settings round-trips for an anonymous visitor — the choice lives in
+  // localStorage only.
+  expect(
+    fetchMock.mock.calls.some(([url]) => String(url).endsWith("/settings")),
+  ).toBe(false);
 });

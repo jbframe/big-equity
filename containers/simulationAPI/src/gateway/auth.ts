@@ -9,12 +9,14 @@ import {
 } from "jose";
 
 // simulationAPI is the app gateway for the simulationWeb SPA (ADR-010): the
-// OIDC relying party (a "BFF", ADR-007) *and* the login wall in one place.
+// OIDC relying party (a "BFF", ADR-007) and the SPA proxy in one place.
 // FusionAuth (ADR-006) is the identity provider and the sole user store —
 // this file runs the authorization-code flow against it, validates the
 // returned id_token, mints a signed session cookie, and proxies the app
-// hostname to the static SPA container only when that cookie is valid. No
-// user tables here; that's FusionAuth's job.
+// hostname to the static SPA container. Login is optional: the SPA is served
+// to anonymous visitors too (the simulator runs client-side); only the data
+// routes require a session (requireSession), so nothing is persisted for an
+// anonymous user. No user tables here; that's FusionAuth's job.
 //
 // Everything in this file is host-constrained to the app hostname
 // (allin.makejohnacoffee.com): the reverse proxy sends that whole vhost here,
@@ -278,21 +280,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.redirect(logoutUrl.toString());
   });
 
-  // The login wall itself (ADR-010): every other path on the app hostname is
-  // proxied to the static SPA container, but only with a valid session — an
-  // anonymous browser is bounced to /auth/login and comes back here after
-  // FusionAuth. The /auth/* routes above win over this wildcard (path
-  // specificity beats it), so the flow can always start. Read at registration
-  // time, not module load, so tests can point it at a stub upstream.
+  // The SPA proxy: every other path on the app hostname is proxied to the
+  // static SPA container, session or not — login is optional, and the
+  // session-gated data routes are what keep anonymous users out of the
+  // database. The /auth/* routes above win over this wildcard (path
+  // specificity beats it). Read at registration time, not module load, so
+  // tests can point it at a stub upstream.
   const webUpstream = process.env["WEB_UPSTREAM"] ?? "http://simulationweb:80";
   await app.register(proxy, {
     upstream: webUpstream,
     constraints,
-    preHandler: async (req, reply) => {
-      if (!(await readSession(req))) {
-        return reply.redirect(`/auth/login?rd=${encodeURIComponent(req.url)}`);
-      }
-    },
   });
 }
 
