@@ -6,12 +6,11 @@ import { UnauthorizedError } from "./api/client";
 import { createResult, fetchSettings } from "./api/endpoints";
 import { GAMES, cacheGameType, loadCachedGameType } from "./gameType";
 import PastResults from "./PastResults";
-import { HoldemResults, Results } from "./Results";
+import { BigOResults, HighResults } from "./Results";
 import { parseHand } from "./sim/cards";
-import type { HoldemSimulationResult } from "./sim/holdem";
-import { simulateHoldemBoard } from "./sim/holdem";
-import type { SimulationResult } from "./sim/simulation";
-import { simulateBoard } from "./sim/simulation";
+import type { HighOnlyResult, HiLoResult } from "./sim/engine";
+import { simulate } from "./sim/engine";
+
 
 function splitCards(raw: string): string[] {
   return raw
@@ -28,9 +27,9 @@ type CompletedRun = {
   villainHand: string[];
   board: string[];
 } & (
-  | { gameType: "big-o"; result: SimulationResult }
-  | { gameType: "holdem"; result: HoldemSimulationResult }
-);
+    | { gameType: "big-o"; result: HiLoResult }
+    | { gameType: "holdem" | "plo"; result: HighOnlyResult }
+  );
 
 type SaveState =
   | { status: "idle" | "saving" | "saved" }
@@ -72,7 +71,7 @@ export default function App() {
         setError(null);
         setLastRun(null);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -120,19 +119,21 @@ export default function App() {
       const boardCards = splitCards(board);
       try {
         const inputs = { heroHand, villainHand, board: boardCards };
-        setLastRun(
-          gameType === "holdem"
-            ? {
-                gameType,
-                result: simulateHoldemBoard(heroHand, villainHand, boardCards, simulations),
-                ...inputs,
-              }
-            : {
-                gameType,
-                result: simulateBoard(heroHand, villainHand, boardCards, simulations),
-                ...inputs,
-              },
-        );
+        // The branch keeps the result type tied to the game type: each arm
+        // hits a different `simulate` overload.
+        if (gameType === "big-o") {
+          setLastRun({
+            gameType,
+            result: simulate(gameType, heroHand, villainHand, boardCards, simulations),
+            ...inputs,
+          });
+        } else {
+          setLastRun({
+            gameType,
+            result: simulate(gameType, heroHand, villainHand, boardCards, simulations),
+            ...inputs,
+          });
+        }
         setSaveState({ status: "idle" });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -164,6 +165,13 @@ export default function App() {
             : String(e);
       setSaveState({ status: "error", message });
     }
+  }
+
+  function renderResults(lastRun: CompletedRun): React.ReactElement | null {
+    if (lastRun.gameType === "big-o") {
+      return <BigOResults result={lastRun.result} />;
+    }
+    return <HighResults result={lastRun.result} />;
   }
 
   return (
@@ -245,11 +253,7 @@ export default function App() {
 
           {lastRun && !running && (
             <>
-              {lastRun.gameType === "holdem" ? (
-                <HoldemResults result={lastRun.result} />
-              ) : (
-                <Results result={lastRun.result} />
-              )}
+              {renderResults(lastRun)}
               {lastRun.gameType === "big-o" && (
                 <div className="save">
                   <button

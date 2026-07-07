@@ -34,7 +34,7 @@ export const noScoopSchema = z.object({
   low: lowTallySchema,
 });
 
-export const GAME_TYPES = ["big-o", "holdem"] as const;
+export const GAME_TYPES = ["big-o", "holdem", "plo"] as const;
 export const gameTypeSchema = z.enum(GAME_TYPES);
 
 // Per-user app preferences, keyed by the FusionAuth subject the gateway

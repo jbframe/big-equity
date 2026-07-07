@@ -1,11 +1,11 @@
-import type { HoldemSimulationResult } from "./sim/holdem";
-import type { SimulationResult } from "./sim/simulation";
+import type { HighOnlyResult, HiLoResult } from "./sim/engine";
 
 const pct = (n: number, total: number): string =>
   total === 0 ? "0.00" : ((n / total) * 100).toFixed(2);
 
-export function HoldemResults({ result }: { result: HoldemSimulationResult }) {
-  const { simulations: sims, heroWins, villainWins, ties } = result;
+/** Results for high-only games (Hold'em, PLO). */
+export function HighResults({ result }: { result: HighOnlyResult }) {
+  const { simulations: sims, high } = result;
 
   return (
     <section className="results">
@@ -14,16 +14,16 @@ export function HoldemResults({ result }: { result: HoldemSimulationResult }) {
       </h2>
       <p className="hint">{sims.toLocaleString()} simulations</p>
 
-      <h3>Showdown</h3>
+      <h3>High hand</h3>
       <p>
-        Hero wins {pct(heroWins, sims)}% · Villain wins {pct(villainWins, sims)}% · Ties{" "}
-        {pct(ties, sims)}%
+        Hero wins {pct(high.heroWins, sims)}% · Villain wins {pct(high.villainWins, sims)}% ·
+        Splits {pct(high.splits, sims)}%
       </p>
     </section>
   );
 }
 
-export function Results({ result }: { result: SimulationResult }) {
+export function BigOResults({ result }: { result: HiLoResult }) {
   const { simulations: sims, high, low, scoop, noScoop } = result;
   const none = scoop.none;
 
