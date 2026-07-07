@@ -145,8 +145,6 @@ export default function App() {
             ...inputs,
           })
         }
-
-
         setSaveState({ status: "idle" });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -180,10 +178,7 @@ export default function App() {
     }
   }
 
-  function renderResults(lastRun: CompletedRun | null): React.ReactElement | null {
-    if (lastRun === null) {
-      return null;
-    }
+  function renderResults(lastRun: CompletedRun): React.ReactElement | null {
     if (lastRun.gameType === 'holdem') {
       return <HoldemResults result={lastRun.result} />;
     }
@@ -192,8 +187,6 @@ export default function App() {
     }
     return <PLOResults result={lastRun.result} />;
   }
-
-
 
   return (
     <>
