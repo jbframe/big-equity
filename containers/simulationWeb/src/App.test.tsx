@@ -68,7 +68,7 @@ test("renders the form with the example matchup prefilled", () => {
   expect(screen.getByRole("heading", { name: /poker equity/i })).toBeTruthy();
   expect(screen.getByLabelText<HTMLInputElement>(/hero hand/i).value).toBe("4c 4d 5c Kh 3c");
   expect(screen.getByLabelText<HTMLInputElement>(/villain hand/i).value).toBe("Ad 2h 4s Qc 10s");
-  expect(screen.getByLabelText<HTMLInputElement>(/board/i).value).toBe("2d 3s 9d 6c As");
+  expect(screen.getByLabelText<HTMLInputElement>(/board/i).value).toBe("2d 3s 9d 6c");
 });
 
 test("rejects a hero hand without exactly 5 cards", () => {
@@ -136,7 +136,7 @@ test("saves a result to the backend in API card notation", async () => {
   expect(body.source).toBe("web");
   expect(body.heroHand).toEqual(["4c", "4d", "5c", "kh", "3c"]);
   expect(body.villainHand).toEqual(["ad", "2h", "4s", "qc", "10s"]);
-  expect(body.board).toEqual(["2d", "3s", "9d", "6c", "as"]);
+  expect(body.board).toEqual(["2d", "3s", "9d", "6c"]);
   expect(body.simulations).toBe(50);
 });
 

@@ -1,9 +1,10 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 // Static SPA build.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     // The API gateway's login wall proxies http://local.allin.… here in local
     // dev (scripts/local-stack.sh); Vite's DNS-rebinding guard would reject

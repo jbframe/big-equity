@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { toApiCards } from "./api/cards";
-import { UnauthorizedError } from "./api/client";
-import { createResult, fetchSettings } from "./api/endpoints";
-import { useAuth, useLoginHref } from "./auth";
-import { GAMES, cacheGameType, loadCachedGameType } from "./gameType";
+import { toApiCards } from "../api/cards";
+import { UnauthorizedError } from "../api/client";
+import { createResult, fetchSettings } from "../api/endpoints";
+import { useAuth, useLoginHref } from "../auth";
+import Button from "../components/Button";
+import CardChips from "../components/CardChips";
+import { BigOResults, HighResults } from "../components/Results";
+import { Tab, TabList } from "../components/Tabs";
+import { ErrorText, Hint } from "../components/Text";
+import TextField from "../components/TextField";
+import { cardClass, linkClass } from "../components/theme";
+import { GAMES, cacheGameType, loadCachedGameType } from "../gameType";
+import { parseHand } from "../sim/cards";
+import type { HighOnlyResult, HiLoResult } from "../sim/engine";
+import { simulate } from "../sim/engine";
 import PastResults from "./PastResults";
-import { BigOResults, HighResults } from "./Results";
-import { parseHand } from "./sim/cards";
-import type { HighOnlyResult, HiLoResult } from "./sim/engine";
-import { simulate } from "./sim/engine";
-
 
 function splitCards(raw: string): string[] {
   return raw
@@ -38,7 +43,7 @@ type SaveState =
 
 type Tab = "simulator" | "past";
 
-export default function App() {
+export default function SimulatorPage() {
   const auth = useAuth();
   const loginHref = useLoginHref();
 
@@ -175,42 +180,40 @@ export default function App() {
   }
 
   function renderResults(lastRun: CompletedRun): React.ReactElement | null {
+    const resultsClass = `mt-6 p-5 ${cardClass}`;
     if (lastRun.gameType === "big-o") {
-      return <BigOResults result={lastRun.result} />;
+      return <BigOResults result={lastRun.result} className={resultsClass} />;
     }
-    return <HighResults result={lastRun.result} />;
+    return <HighResults result={lastRun.result} className={resultsClass} />;
   }
 
   return (
     <>
-      <p className="hint">
-        Game: <strong>{game.label}</strong> ({game.description}) ·{" "}
-        <Link to="/settings">change</Link>
-      </p>
-      <div className="tabs" role="tablist" aria-label="Views">
-        <button
-          type="button"
-          role="tab"
+      <Hint className="mt-1">
+        Game: <strong className="font-semibold text-slate-700 dark:text-(--font-color)">{game.label}</strong>{" "}
+        ({game.description}) ·{" "}
+        <Link to="/settings" className={linkClass}>
+          change
+        </Link>
+      </Hint>
+      <TabList label="Views">
+        <Tab
           id="tab-simulator"
-          aria-selected={tab === "simulator"}
-          aria-controls="panel-simulator"
-          className={tab === "simulator" ? "tab active" : "tab"}
+          controls="panel-simulator"
+          active={tab === "simulator"}
           onClick={() => setTab("simulator")}
         >
           Simulator
-        </button>
-        <button
-          type="button"
-          role="tab"
+        </Tab>
+        <Tab
           id="tab-past"
-          aria-selected={tab === "past"}
-          aria-controls="panel-past"
-          className={tab === "past" ? "tab active" : "tab"}
+          controls="panel-past"
+          active={tab === "past"}
           onClick={() => setTab("past")}
         >
           Past results
-        </button>
-      </div>
+        </Tab>
+      </TabList>
 
       {tab === "past" ? (
         <div id="panel-past" role="tabpanel" aria-labelledby="tab-past">
@@ -218,54 +221,75 @@ export default function App() {
         </div>
       ) : (
         <div id="panel-simulator" role="tabpanel" aria-labelledby="tab-simulator">
-          <p className="hint">
-            Cards as rank + suit, separated by spaces (e.g. <code>Ad 5d 4s Ks Tc</code>). Ten is{" "}
-            <code>T</code> or <code>10</code>; suits are <code>c d h s</code>.
-          </p>
+          <Hint className="mb-4">
+            Cards as rank + suit, separated by spaces (e.g.{" "}
+            <code className="font-mono text-slate-700 dark:text-slate-300">Ad 5d 4s Ks Tc</code>).
+            Ten is <code className="font-mono">T</code> or <code className="font-mono">10</code>;
+            suits are <code className="font-mono">c d h s</code>.
+          </Hint>
 
           <form
+            className="grid gap-4 sm:grid-cols-2"
             onSubmit={(e) => {
               e.preventDefault();
               run();
             }}
           >
-            <label>
-              Hero hand ({game.handSize} cards)
-              <input value={hero} onChange={(e) => setHero(e.target.value)} />
-            </label>
-            <label>
-              Villain hand ({game.handSize} cards)
-              <input value={villain} onChange={(e) => setVillain(e.target.value)} />
-            </label>
-            <label>
-              Board (0–5 cards)
-              <input value={board} onChange={(e) => setBoard(e.target.value)} />
-            </label>
-            <label>
-              Simulations
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={simulations}
-                onChange={(e) => setSimulations(Number(e.target.value))}
-              />
-            </label>
-            <button type="submit" disabled={running}>
-              {running ? "Running…" : "Run simulation"}
-            </button>
+            <TextField
+              label={`Hero hand (${game.handSize} cards)`}
+              mono
+              value={hero}
+              onChange={(e) => setHero(e.target.value)}
+            />
+            <TextField
+              label={`Villain hand (${game.handSize} cards)`}
+              mono
+              value={villain}
+              onChange={(e) => setVillain(e.target.value)}
+            />
+            <TextField
+              label="Board (0–5 cards)"
+              mono
+              className="sm:col-span-2"
+              value={board}
+              onChange={(e) => setBoard(e.target.value)}
+            />
+            <TextField
+              label="Simulations"
+              type="number"
+              min={1}
+              step={1}
+              value={simulations}
+              onChange={(e) => setSimulations(Number(e.target.value))}
+            />
+            <div className="self-end sm:col-span-1">
+              <Button type="submit" disabled={running}>
+                {running ? "Running…" : "Run simulation"}
+              </Button>
+            </div>
           </form>
 
-          {error && <p className="error">{error}</p>}
+          {error && <ErrorText className="mt-4">{error}</ErrorText>}
 
           {lastRun && !running && (
             <>
+              <div className="mt-6 grid gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6">
+                <span>
+                  Hero <CardChips cards={lastRun.heroHand} />
+                </span>
+                <span>
+                  Villain <CardChips cards={lastRun.villainHand} />
+                </span>
+                <span>
+                  Board <CardChips cards={lastRun.board} />
+                </span>
+              </div>
               {renderResults(lastRun)}
               {lastRun.gameType === "big-o" &&
                 (auth.status === "authenticated" ? (
-                  <div className="save">
-                    <button
-                      type="button"
+                  <div className="mt-4">
+                    <Button
+                      variant="subtle"
                       onClick={() => void save()}
                       disabled={saveState.status === "saving" || saveState.status === "saved"}
                     >
@@ -274,13 +298,18 @@ export default function App() {
                         : saveState.status === "saved"
                           ? "Saved ✓"
                           : "Save result"}
-                    </button>
-                    {saveState.status === "error" && <p className="error">{saveState.message}</p>}
+                    </Button>
+                    {saveState.status === "error" && (
+                      <ErrorText className="mt-2">{saveState.message}</ErrorText>
+                    )}
                   </div>
                 ) : (
-                  <p className="hint save">
-                    <a href={loginHref}>Log in</a> to save this result.
-                  </p>
+                  <Hint className="mt-4">
+                    <a href={loginHref} className={linkClass}>
+                      Log in
+                    </a>{" "}
+                    to save this result.
+                  </Hint>
                 ))}
             </>
           )}
