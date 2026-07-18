@@ -12,13 +12,18 @@
     "container as AUTH_CLIENT_SECRET / LOCAL_ADMIN_PASSWORD /",
     "LOCAL_PLAYER_PASSWORD / LOCAL_SIGNING_KEY_ID / LOCAL_KICKSTART_API_KEY,",
     "read below via #{ENV.…}. Everything else here is",
-    "intentionally public and local-only."
+    "intentionally public and local-only.",
+    "The tenant theme (auto dark mode, same CSS as prod's",
+    "containers/fusionAuth/kickstart.json - keep in sync) is duplicated from",
+    "the default theme, then given the stylesheet: a POST with sourceThemeId",
+    "ignores every other theme field, so the stylesheet is a second PATCH."
   ],
   "variables": {
     "clientId": "c37d57fd-f64d-42fc-bf27-048d658009ca",
     "appUrl": "http://local.allin.makejohnacoffee.com",
     "issuer": "http://local.id.makejohnacoffee.com",
-    "signingKeyId": "#{ENV.LOCAL_SIGNING_KEY_ID}"
+    "signingKeyId": "#{ENV.LOCAL_SIGNING_KEY_ID}",
+    "themeId": "4e58a2b8-1a0d-4d3e-a044-09421ee4525b"
   },
   "apiKeys": [
     {
@@ -28,11 +33,31 @@
   ],
   "requests": [
     {
+      "method": "POST",
+      "url": "/api/theme/#{themeId}",
+      "body": {
+        "sourceThemeId": "75a068fd-e94b-451a-9aeb-3ddb9a3b5987",
+        "theme": {
+          "name": "Auto dark"
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "url": "/api/theme/#{themeId}",
+      "body": {
+        "theme": {
+          "stylesheet": "/*\n * Auto dark mode for the FusionAuth hosted pages (fusionauth-app 1.68).\n * The hosted templates carry no .card/.panel classes; every color is painted\n * through theme CSS variables, so dark mode is just re-pointing those\n * variables. Light mode is left entirely to the theme defaults.\n * NOTE: this CSS is duplicated in scripts/local-stack/kickstart.json and\n * containers/fusionAuth/kickstart.json - keep both copies in sync.\n */\n@media (prefers-color-scheme: dark) {\n  :root {\n    /* Admin-configurable source variables consumed by fusionauth-hosted.css */\n    --page-background: #121212;\n    --panel-background: #1e1e1e;\n    --font-color: #e0e0e0;\n    --input-background: #2a2a2a;\n    --input-text: #f1f5f9;\n    --link-color: #38bdf8;\n    --link-color-focus: #7dd3fc;\n\n    /* Derived internals whose auto-computed value doesn't suit dark mode */\n    --color-panel-border: #333333;\n    --color-input-placeholder: #94a3b8;\n  }\n}\n"
+        }
+      }
+    },
+    {
       "method": "PATCH",
       "url": "/api/tenant/#{FUSIONAUTH_TENANT_ID}",
       "body": {
         "tenant": {
-          "issuer": "#{issuer}"
+          "issuer": "#{issuer}",
+          "themeId": "#{themeId}"
         }
       }
     },
@@ -46,7 +71,9 @@
         },
         "registration": {
           "applicationId": "#{FUSIONAUTH_APPLICATION_ID}",
-          "roles": ["admin"]
+          "roles": [
+            "admin"
+          ]
         }
       }
     },
@@ -78,8 +105,13 @@
           },
           "oauthConfiguration": {
             "clientSecret": "#{ENV.AUTH_CLIENT_SECRET}",
-            "enabledGrants": ["authorization_code"],
-            "authorizedRedirectURLs": ["#{appUrl}/auth/callback", "#{appUrl}"],
+            "enabledGrants": [
+              "authorization_code"
+            ],
+            "authorizedRedirectURLs": [
+              "#{appUrl}/auth/callback",
+              "#{appUrl}"
+            ],
             "logoutURL": "#{appUrl}/",
             "relationship": "FirstParty",
             "scopeHandlingPolicy": "Compatibility"

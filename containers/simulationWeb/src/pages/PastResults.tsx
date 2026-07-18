@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { fromApiCards } from "./api/cards";
-import { UnauthorizedError } from "./api/client";
-import { listResults } from "./api/endpoints";
-import type { StoredResult } from "./api/types";
-import { useAuth, useLoginHref } from "./auth";
-import { BigOResults } from "./Results";
+import { fromApiCards } from "../api/cards";
+import { UnauthorizedError } from "../api/client";
+import { listResults } from "../api/endpoints";
+import type { StoredResult } from "../api/types";
+import { useAuth, useLoginHref } from "../auth";
+import { BigOResults } from "../components/Results";
+import { ErrorText, Hint } from "../components/Text";
+import { cardClass, linkClass } from "../components/theme";
 
 type LoadState =
   | { status: "loading" }
@@ -44,23 +46,26 @@ export default function PastResults() {
 
   if (auth.status === "anonymous") {
     return (
-      <p className="hint">
-        <a href={loginHref}>Log in</a> to save simulation results and see them here.
-      </p>
+      <Hint>
+        <a href={loginHref} className={linkClass}>
+          Log in
+        </a>{" "}
+        to save simulation results and see them here.
+      </Hint>
     );
   }
   if (auth.status === "loading" || state.status === "loading") {
-    return <p className="hint">Loading saved results…</p>;
+    return <Hint>Loading saved results…</Hint>;
   }
   if (state.status === "error") {
-    return <p className="error">{state.message}</p>;
+    return <ErrorText>{state.message}</ErrorText>;
   }
   if (state.results.length === 0) {
-    return <p className="hint">No saved results yet. Run a simulation and save it.</p>;
+    return <Hint>No saved results yet. Run a simulation and save it.</Hint>;
   }
 
   return (
-    <ul className="past-results">
+    <ul className="grid gap-3">
       {state.results.map((r) => (
         <PastResultRow
           key={r.id}
@@ -85,22 +90,36 @@ function PastResultRow({
   const hero = fromApiCards(result.heroHand).join(" ");
   const villain = fromApiCards(result.villainHand).join(" ");
   const board = fromApiCards(result.board).join(" ");
+  const mono = "font-mono text-slate-700 dark:text-slate-300";
 
   return (
-    <li className="past-result">
-      <button type="button" className="past-result-summary" onClick={onToggle} aria-expanded={open}>
-        <span className="past-result-hands">
+    <li className={`overflow-hidden ${cardClass}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-(--input-background)/50"
+      >
+        <span className="grid gap-0.5 text-sm">
           <span>
-            Hero <code>{hero}</code> vs Villain <code>{villain}</code>
+            Hero <code className={mono}>{hero}</code> vs Villain{" "}
+            <code className={mono}>{villain}</code>
           </span>
-          <span className="hint">
-            Board {board === "" ? "—" : <code>{board}</code>} ·{" "}
+          <Hint className="m-0">
+            Board {board === "" ? "—" : <code className={mono}>{board}</code>} ·{" "}
             {result.simulations.toLocaleString()} simulations · saved {result.createdAt}
-          </span>
+          </Hint>
         </span>
-        <strong className="past-result-equity">{result.heroEquity.toFixed(3)}%</strong>
+        <strong className="whitespace-nowrap text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+          {result.heroEquity.toFixed(3)}%
+        </strong>
       </button>
-      {open && <BigOResults result={result} />}
+      {open && (
+        <BigOResults
+          result={result}
+          className="border-t border-slate-200 px-4 py-4 dark:border-(--color-panel-border)"
+        />
+      )}
     </li>
   );
 }

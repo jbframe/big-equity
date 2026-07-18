@@ -1,194 +1,28 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+@import "tailwindcss";
 
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
-  line-height: 1.5;
-}
+@layer base {
+  :root {
+    /* Follow the OS theme; the dark: variant keys off prefers-color-scheme. */
+    color-scheme: light dark;
+  }
 
-.app {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
-}
+  /* Dark palette — shared with the FusionAuth hosted-login theme so the app
+     and login pages match. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page-background: #121212;
+      --panel-background: #1e1e1e;
+      --font-color: #e0e0e0;
+      --input-background: #2a2a2a;
+      --input-text: #f1f5f9;
+      --link-color: #38bdf8;
+      --link-color-focus: #7dd3fc;
+      --color-panel-border: #333333;
+      --color-input-placeholder: #94a3b8;
+    }
+  }
 
-.app-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.app-header h1 a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.app-nav {
-  display: flex;
-  gap: 1rem;
-}
-
-.app-nav a {
-  color: #555;
-  font-size: 0.9rem;
-}
-
-.settings h3 {
-  margin-bottom: 0.25rem;
-}
-
-.settings h3 + p {
-  margin-top: 0;
-}
-
-.app .game-type {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-
-.app .radio-option {
-  display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
-  font-weight: 400;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-  margin: 1rem 0 1.25rem;
-  border-bottom: 1px solid #ddd;
-}
-
-.app .tabs .tab {
-  padding: 0.5rem 1rem;
-  font: inherit;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: #555;
-  cursor: pointer;
-}
-
-.app .tabs .tab.active {
-  color: inherit;
-  font-weight: 600;
-  border-bottom-color: currentColor;
-}
-
-.app form {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.app label {
-  display: grid;
-  gap: 0.25rem;
-  font-weight: 600;
-}
-
-.app input {
-  padding: 0.4rem 0.5rem;
-  font: inherit;
-  font-weight: 400;
-}
-
-.app button {
-  justify-self: start;
-  padding: 0.5rem 1rem;
-  font: inherit;
-}
-
-.hint {
-  color: #555;
-  font-size: 0.9rem;
-}
-
-.error {
-  color: #b00020;
-  font-weight: 600;
-}
-
-.results {
-  margin-top: 1.5rem;
-  border-top: 1px solid #ddd;
-  padding-top: 1rem;
-}
-
-.results h3 {
-  margin-bottom: 0.25rem;
-}
-
-.results h3 + p {
-  margin-top: 0;
-}
-
-.save {
-  margin-top: 1rem;
-}
-
-.save button {
-  padding: 0.5rem 1rem;
-  font: inherit;
-}
-
-.past-results {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.past-result {
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-
-.app .past-result-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  width: 100%;
-  padding: 0.6rem 0.75rem;
-  font: inherit;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.past-result-hands {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.past-result-hands .hint {
-  margin: 0;
-}
-
-.past-result-equity {
-  white-space: nowrap;
-}
-
-.past-result .results {
-  margin: 0 0.75rem 0.75rem;
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-(--page-background) dark:text-(--font-color);
+  }
 }
