@@ -16,6 +16,17 @@ services:
     # DB creds, SEARCH_TYPE=database (OpenSearch off), and runtime config,
     # written by the deploy pipeline from GitHub secrets (ADR-006).
     env_file: .env
+    # First-boot provisioning (empty database only, i.e. a from-scratch
+    # recreation): kickstart.json creates the tenant issuer, the auto-dark
+    # theme and the initial admin user. Configuring a kickstart file replaces
+    # FusionAuth's Setup Wizard, which is why the admin user is in there.
+    # Synced by the deploy pipeline alongside this file; the #{ENV.…} values
+    # it reads are written into .env from GitHub secrets on every deploy.
+    # Inert on redeploys and on restore-from-backup (database not empty).
+    environment:
+      FUSIONAUTH_APP_KICKSTART_FILE: /usr/local/fusionauth/kickstart/kickstart.json
+    volumes:
+      - ./kickstart.json:/usr/local/fusionauth/kickstart/kickstart.json:ro
     # Reuses the already-running simulationDB over the shared private network —
     # no host port on the DB (ADR-003). FusionAuth creates its own `fusionauth`
     # database and role on first boot in silent mode using the root creds in

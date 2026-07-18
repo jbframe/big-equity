@@ -1,0 +1,76 @@
+{
+  "//": [
+    "FusionAuth first-boot provisioning for PROD (containers/fusionAuth).",
+    "Kickstart only runs against a completely empty fusionauth database -",
+    "i.e. when the box/DB is recreated from scratch, not on redeploys and",
+    "not when restoring from backup. Configuring a kickstart file also",
+    "REPLACES FusionAuth's Setup Wizard, so this file must create the",
+    "initial admin user itself (FUSIONAUTH_ADMIN_EMAIL/_PASSWORD, written",
+    "to .env from GitHub secrets by deploy.yml) or a fresh instance would",
+    "have no admin login at all.",
+    "Scope is deliberately minimal: tenant issuer + auto-dark theme (same",
+    "CSS as scripts/local-stack/kickstart.json - keep in sync) + admin",
+    "user. The poker_equity application and JWT signing key remain",
+    "hand-configured (see README).",
+    "The theme is duplicated from the default theme, then given the",
+    "stylesheet: a POST with sourceThemeId ignores every other theme",
+    "field, so the stylesheet is a second PATCH."
+  ],
+  "variables": {
+    "issuer": "https://id.makejohnacoffee.com",
+    "themeId": "4e58a2b8-1a0d-4d3e-a044-09421ee4525b"
+  },
+  "apiKeys": [
+    {
+      "key": "#{ENV.FUSIONAUTH_KICKSTART_API_KEY}",
+      "description": "kickstart bootstrap key (random per deploy, unused afterwards)"
+    }
+  ],
+  "requests": [
+    {
+      "method": "POST",
+      "url": "/api/theme/#{themeId}",
+      "body": {
+        "sourceThemeId": "75a068fd-e94b-451a-9aeb-3ddb9a3b5987",
+        "theme": {
+          "name": "Auto dark"
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "url": "/api/theme/#{themeId}",
+      "body": {
+        "theme": {
+          "stylesheet": "/*\n * Auto dark mode for the FusionAuth hosted pages (fusionauth-app 1.68).\n * The hosted templates carry no .card/.panel classes; every color is painted\n * through theme CSS variables, so dark mode is just re-pointing those\n * variables. Light mode is left entirely to the theme defaults.\n * NOTE: this CSS is duplicated in scripts/local-stack/kickstart.json and\n * containers/fusionAuth/kickstart.json - keep both copies in sync.\n */\n@media (prefers-color-scheme: dark) {\n  :root {\n    /* Admin-configurable source variables consumed by fusionauth-hosted.css */\n    --page-background: #121212;\n    --panel-background: #1e1e1e;\n    --font-color: #e0e0e0;\n    --input-background: #2a2a2a;\n    --input-text: #f1f5f9;\n    --link-color: #38bdf8;\n    --link-color-focus: #7dd3fc;\n\n    /* Derived internals whose auto-computed value doesn't suit dark mode */\n    --color-panel-border: #333333;\n    --color-input-placeholder: #94a3b8;\n  }\n}\n"
+        }
+      }
+    },
+    {
+      "method": "PATCH",
+      "url": "/api/tenant/#{FUSIONAUTH_TENANT_ID}",
+      "body": {
+        "tenant": {
+          "issuer": "#{issuer}",
+          "themeId": "#{themeId}"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "/api/user/registration",
+      "body": {
+        "user": {
+          "email": "#{ENV.FUSIONAUTH_ADMIN_EMAIL}",
+          "password": "#{ENV.FUSIONAUTH_ADMIN_PASSWORD}"
+        },
+        "registration": {
+          "applicationId": "#{FUSIONAUTH_APPLICATION_ID}",
+          "roles": [
+            "admin"
+          ]
+        }
+      }
+    }
+  ]
+}

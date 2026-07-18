@@ -94,6 +94,21 @@ jobs:
           target: ~/containers/simulationDB/initdb
           strip_components: 3
 
+      # fusionAuth ships its first-boot kickstart the same way (theme, tenant
+      # issuer, initial admin user). FusionAuth only reads it when
+      # initializing an empty database, so re-syncing it on every deploy is
+      # harmless too.
+      - name: Sync kickstart to box
+        if: matrix.container.name == 'fusionAuth'
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: containers/fusionAuth/kickstart.json
+          target: ~/containers/fusionAuth
+          strip_components: 2
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
@@ -110,11 +125,15 @@ jobs:
           # poker_equity client secret and the session-cookie signing key.
           FUSIONAUTH_CLIENT_SECRET: ${{ secrets.FUSIONAUTH_CLIENT_SECRET }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          # FusionAuth first-boot kickstart (empty database only): the
+          # initial admin login it creates in place of the Setup Wizard.
+          FUSIONAUTH_ADMIN_EMAIL: ${{ secrets.FUSIONAUTH_ADMIN_EMAIL }}
+          FUSIONAUTH_ADMIN_PASSWORD: ${{ secrets.FUSIONAUTH_ADMIN_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE,CONTAINER,BUILD,DBADMIN_PASSWORD,SIMULATIONDB_PASSWORD,FUSIONAUTHDB_PASSWORD,FUSIONAUTH_CLIENT_SECRET,SESSION_SECRET
+          envs: IMAGE,CONTAINER,BUILD,DBADMIN_PASSWORD,SIMULATIONDB_PASSWORD,FUSIONAUTHDB_PASSWORD,FUSIONAUTH_CLIENT_SECRET,SESSION_SECRET,FUSIONAUTH_ADMIN_EMAIL,FUSIONAUTH_ADMIN_PASSWORD
           script: |
             set -e
             # Private path between simulationAPI and simulationDB (ADR-003).
@@ -180,6 +199,13 @@ jobs:
                 echo "DBADMIN_PASSWORD and FUSIONAUTHDB_PASSWORD secrets must be set" >&2
                 exit 1
               fi
+              # Kickstart (first boot on an empty database) replaces the
+              # Setup Wizard, so the admin login it creates must be real —
+              # empty values here would mean no admin access on a rebuilt box.
+              if [ -z "$FUSIONAUTH_ADMIN_EMAIL" ] || [ -z "$FUSIONAUTH_ADMIN_PASSWORD" ]; then
+                echo "FUSIONAUTH_ADMIN_EMAIL and FUSIONAUTH_ADMIN_PASSWORD secrets must be set" >&2
+                exit 1
+              fi
               cat > .env <<EOF
             DATABASE_URL=jdbc:postgresql://simulationdb:5432/fusionauth
             DATABASE_ROOT_USERNAME=dbadmin
@@ -190,6 +216,9 @@ jobs:
             FUSIONAUTH_APP_MEMORY=512M
             FUSIONAUTH_APP_RUNTIME_MODE=production
             FUSIONAUTH_APP_URL=http://localhost:9011
+            FUSIONAUTH_ADMIN_EMAIL=$FUSIONAUTH_ADMIN_EMAIL
+            FUSIONAUTH_ADMIN_PASSWORD=$FUSIONAUTH_ADMIN_PASSWORD
+            FUSIONAUTH_KICKSTART_API_KEY=$(openssl rand -hex 32)
             EOF
             fi
 
